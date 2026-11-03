@@ -10,6 +10,7 @@ export interface PointerHandlerCallbacks {
   onStrokeMove: (points: StrokePoint[], simulatePressure: boolean) => void;
   onStrokeEnd: () => void;
   onStrokeCancel: () => void;
+  onHoverMove?: (point: StrokePoint | null) => void;
 }
 
 /** Minimum clamped pressure so light stylus contact never collapses to a 0-width stroke */
@@ -36,7 +37,10 @@ export function normalizeAndSmoothPressure(
   }
 
   // Clamp raw pressure into a safe positive range
-  const clamped = Math.max(0.01, Math.min(1, Number.isFinite(rawPressure) ? rawPressure : FALLBACK_PRESSURE));
+  const clamped = Math.max(
+    0.01,
+    Math.min(1, Number.isFinite(rawPressure) ? rawPressure : FALLBACK_PRESSURE)
+  );
 
   // Apply a gentle gamma curve (exponent 0.8) so light/medium handwriting feels responsive
   // without requiring heavy physical force on the tablet surface, then map into [0.12, 1.0].
@@ -51,7 +55,10 @@ export function normalizeAndSmoothPressure(
   const smoothed =
     previousPressure + PRESSURE_SMOOTHING_ALPHA * (curved - previousPressure);
   return Number(
-    Math.max(MIN_STYLUS_PRESSURE, Math.min(MAX_STYLUS_PRESSURE, smoothed)).toFixed(4)
+    Math.max(
+      MIN_STYLUS_PRESSURE,
+      Math.min(MAX_STYLUS_PRESSURE, smoothed)
+    ).toFixed(4)
   );
 }
 
@@ -107,6 +114,7 @@ export class PointerInputHandler {
     this.canvas.addEventListener('pointermove', this.handlePointerMove);
     this.canvas.addEventListener('pointerup', this.handlePointerUp);
     this.canvas.addEventListener('pointercancel', this.handlePointerCancel);
+    this.canvas.addEventListener('pointerleave', this.handlePointerLeave);
     this.canvas.addEventListener('lostpointercapture', this.handleLostPointerCapture);
     this.canvas.addEventListener('contextmenu', this.handleContextMenu);
     window.addEventListener('blur', this.handleWindowBlur);
@@ -119,6 +127,7 @@ export class PointerInputHandler {
     this.canvas.removeEventListener('pointermove', this.handlePointerMove);
     this.canvas.removeEventListener('pointerup', this.handlePointerUp);
     this.canvas.removeEventListener('pointercancel', this.handlePointerCancel);
+    this.canvas.removeEventListener('pointerleave', this.handlePointerLeave);
     this.canvas.removeEventListener('lostpointercapture', this.handleLostPointerCapture);
     this.canvas.removeEventListener('contextmenu', this.handleContextMenu);
     window.removeEventListener('blur', this.handleWindowBlur);
@@ -132,8 +141,15 @@ export class PointerInputHandler {
 
   private handleWindowBlur = (): void => {
     this.activeTouchPointers.clear();
+    this.callbacks.onHoverMove?.(null);
     if (this.activePointerId !== null) {
       this.finishActiveStroke(false);
+    }
+  };
+
+  private handlePointerLeave = (): void => {
+    if (this.activePointerId === null) {
+      this.callbacks.onHoverMove?.(null);
     }
   };
 
@@ -217,6 +233,7 @@ export class PointerInputHandler {
 
     const startPoint = this.extractStrokePoint(e);
     this.lastPoint = startPoint;
+    this.callbacks.onHoverMove?.(startPoint);
 
     this.callbacks.onStrokeStart(
       startPoint,
@@ -226,7 +243,21 @@ export class PointerInputHandler {
   };
 
   private handlePointerMove = (e: PointerEvent): void => {
-    if (this.activePointerId === null || e.pointerId !== this.activePointerId) {
+    if (this.activePointerId === null) {
+      // Passive hover movement (used for rendering the eraser cursor ring)
+      if (this.callbacks.onHoverMove && e.pointerType !== 'touch') {
+        const clampedX = Math.max(0, Math.min(window.innerWidth, e.clientX));
+        const clampedY = Math.max(0, Math.min(window.innerHeight, e.clientY));
+        this.callbacks.onHoverMove({
+          x: clampedX + window.scrollX,
+          y: clampedY + window.scrollY,
+          pressure: FALLBACK_PRESSURE,
+        });
+      }
+      return;
+    }
+
+    if (e.pointerId !== this.activePointerId) {
       return;
     }
 
@@ -259,6 +290,10 @@ export class PointerInputHandler {
       this.lastPoint = pt;
     }
 
+    if (this.lastPoint) {
+      this.callbacks.onHoverMove?.(this.lastPoint);
+    }
+
     if (newPoints.length > 0) {
       this.callbacks.onStrokeMove(newPoints, !this.hasRealPressure);
     }
@@ -283,11 +318,18 @@ export class PointerInputHandler {
       }
     }
 
+    if (e.pointerType === 'touch') {
+      this.callbacks.onHoverMove?.(null);
+    } else {
+      this.callbacks.onHoverMove?.(finalPoint);
+    }
+
     this.finishActiveStroke(false);
   };
 
   private handlePointerCancel = (e: PointerEvent): void => {
     this.activeTouchPointers.delete(e.pointerId);
+    this.callbacks.onHoverMove?.(null);
 
     if (this.activePointerId === null || e.pointerId !== this.activePointerId) {
       return;

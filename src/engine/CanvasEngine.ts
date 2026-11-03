@@ -1,5 +1,7 @@
 import type { Stroke, StrokePoint } from '../types/stroke';
-import { HIGHLIGHTER_OPACITY, ToolSettings } from '../types/tools';
+import { HIGHLIGHTER_OPACITY, type ToolSettings } from '../types/tools';
+import { eraseStrokesAlongSegment } from './EraserEngine';
+import { HistoryManager, type HistoryStateSnapshot } from './HistoryManager';
 import { PointerInputHandler } from './PointerInputHandler';
 import {
   buildStrokePath2D,
@@ -8,18 +10,19 @@ import {
   renderStroke,
 } from './StrokeRenderer';
 
+export type HistoryChangeListener = (snapshot: HistoryStateSnapshot) => void;
+
 /**
  * Core imperative 2D Canvas drawing engine for PageInk.
  * Completely decoupled from React state during pointer movement to guarantee
- * zero React re-renders while drawing and minimal input-to-photon latency.
+ * zero React re-renders while drawing/erasing and minimal input-to-photon latency.
  *
  * Layering & Highlighter Strategy:
  * - Highlighter strokes are rendered onto an offscreen viewport buffer at full
  *   alpha (`1.0`), then composited onto the main canvas at `HIGHLIGHTER_OPACITY` (`0.36`)
  *   underneath opaque Pen strokes.
- * - Because overlapping highlighter strokes merge at `1.0` alpha on the offscreen layer
- *   before the layer is drawn with `globalAlpha = 0.36`, overlapping highlights of the
- *   same color never darken or turn muddy, and highlights never wash out pen ink.
+ * - Continuous eraser drags split intersected strokes in real time while grouping
+ *   the entire drag gesture into a single logical Undo history entry on release.
  */
 export class CanvasEngine {
   private canvas: HTMLCanvasElement;
@@ -27,10 +30,19 @@ export class CanvasEngine {
   private highlighterCanvas: HTMLCanvasElement;
   private highlighterCtx: CanvasRenderingContext2D;
   private pointerHandler: PointerInputHandler;
+  private history: HistoryManager;
+  private onHistoryChange?: HistoryChangeListener;
 
   private settings: ToolSettings;
   private strokes: Stroke[] = [];
   private activeStroke: Stroke | null = null;
+
+  // Eraser session state
+  private isErasing = false;
+  private preEraseStrokesSnapshot: readonly Stroke[] | null = null;
+  private didEraseDuringGesture = false;
+  private lastErasePoint: StrokePoint | null = null;
+  private eraserCursorDocPos: StrokePoint | null = null;
 
   private rafId: number | null = null;
   private needsRender = false;
@@ -40,7 +52,11 @@ export class CanvasEngine {
   private dpr = 1;
   private strokeCounter = 0;
 
-  constructor(canvas: HTMLCanvasElement, initialSettings: ToolSettings) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    initialSettings: ToolSettings,
+    onHistoryChange?: HistoryChangeListener
+  ) {
     this.canvas = canvas;
     const context = canvas.getContext('2d', { desynchronized: false });
     if (!context) {
@@ -56,29 +72,72 @@ export class CanvasEngine {
     this.highlighterCtx = hlContext;
 
     this.settings = { ...initialSettings };
+    this.history = new HistoryManager();
+    this.onHistoryChange = onHistoryChange;
 
     this.updateCanvasDimensions();
 
     this.pointerHandler = new PointerInputHandler(this.canvas, {
       canStartStroke: () =>
         this.settings.activeTool === 'pen' ||
-        this.settings.activeTool === 'highlighter',
+        this.settings.activeTool === 'highlighter' ||
+        this.settings.activeTool === 'eraser',
       onStrokeStart: this.handleStrokeStart,
       onStrokeMove: this.handleStrokeMove,
       onStrokeEnd: this.handleStrokeEnd,
       onStrokeCancel: this.handleStrokeCancel,
+      onHoverMove: this.handleHoverMove,
     });
 
     window.addEventListener('resize', this.handleWindowResize, { passive: true });
     window.addEventListener('scroll', this.handleWindowScroll, { passive: true });
+    this.notifyHistoryChange();
   }
 
   public updateSettings(newSettings: ToolSettings): void {
+    const prevTool = this.settings.activeTool;
     this.settings = { ...newSettings };
+    if (prevTool !== newSettings.activeTool) {
+      this.scheduleRender();
+    }
   }
 
   public getStrokes(): readonly Stroke[] {
     return this.strokes;
+  }
+
+  public undo(): boolean {
+    if (this.activeStroke || this.isErasing) return false;
+    const restored = this.history.undo(this.strokes);
+    if (!restored) return false;
+    this.strokes = restored;
+    this.notifyHistoryChange();
+    this.scheduleRender();
+    return true;
+  }
+
+  public redo(): boolean {
+    if (this.activeStroke || this.isErasing) return false;
+    const restored = this.history.redo(this.strokes);
+    if (!restored) return false;
+    this.strokes = restored;
+    this.notifyHistoryChange();
+    this.scheduleRender();
+    return true;
+  }
+
+  public clearAll(): boolean {
+    if (this.strokes.length === 0) return false;
+    this.history.recordBeforeMutation(this.strokes);
+    this.strokes = [];
+    this.activeStroke = null;
+    this.notifyHistoryChange();
+    this.scheduleRender();
+    return true;
+  }
+
+  public getHistorySnapshot(): HistoryStateSnapshot {
+    return this.history.getSnapshot(this.strokes);
   }
 
   public destroy(): void {
@@ -89,9 +148,20 @@ export class CanvasEngine {
     this.pointerHandler.destroy();
     window.removeEventListener('resize', this.handleWindowResize);
     window.removeEventListener('scroll', this.handleWindowScroll);
+    this.history.clear();
     this.strokes = [];
     this.activeStroke = null;
+    this.preEraseStrokesSnapshot = null;
   }
+
+  private notifyHistoryChange(): void {
+    this.onHistoryChange?.(this.history.getSnapshot(this.strokes));
+  }
+
+  private nextStrokeId = (): string => {
+    this.strokeCounter += 1;
+    return `stroke-${Date.now()}-${this.strokeCounter}`;
+  };
 
   private handleWindowResize = (): void => {
     this.updateCanvasDimensions();
@@ -99,6 +169,18 @@ export class CanvasEngine {
   };
 
   private handleWindowScroll = (): void => {
+    this.scheduleRender();
+  };
+
+  private handleHoverMove = (point: StrokePoint | null): void => {
+    if (this.settings.activeTool !== 'eraser') {
+      if (this.eraserCursorDocPos !== null) {
+        this.eraserCursorDocPos = null;
+        this.scheduleRender();
+      }
+      return;
+    }
+    this.eraserCursorDocPos = point;
     this.scheduleRender();
   };
 
@@ -143,6 +225,18 @@ export class CanvasEngine {
     point: StrokePoint,
     simulatePressure: boolean
   ): void => {
+    if (this.settings.activeTool === 'eraser') {
+      this.isErasing = true;
+      this.preEraseStrokesSnapshot = [...this.strokes];
+      this.didEraseDuringGesture = false;
+      this.lastErasePoint = point;
+      this.eraserCursorDocPos = point;
+
+      this.applyEraserSegment(point, point);
+      this.scheduleRender();
+      return;
+    }
+
     const activeTool =
       this.settings.activeTool === 'highlighter' ? 'highlighter' : 'pen';
     const size =
@@ -154,10 +248,8 @@ export class CanvasEngine {
         ? this.settings.highlighterColor
         : this.settings.color;
 
-    this.strokeCounter += 1;
-
     this.activeStroke = {
-      id: `stroke-${Date.now()}-${this.strokeCounter}`,
+      id: this.nextStrokeId(),
       tool: activeTool,
       color,
       size,
@@ -173,6 +265,19 @@ export class CanvasEngine {
     newPoints: StrokePoint[],
     simulatePressure: boolean
   ): void => {
+    if (this.isErasing) {
+      let prev = this.lastErasePoint ?? newPoints[0];
+      for (let i = 0; i < newPoints.length; i++) {
+        const curr = newPoints[i];
+        this.applyEraserSegment(prev, curr);
+        prev = curr;
+      }
+      this.lastErasePoint = prev;
+      this.eraserCursorDocPos = prev;
+      this.scheduleRender();
+      return;
+    }
+
     if (!this.activeStroke) return;
 
     const stroke = this.activeStroke;
@@ -198,28 +303,76 @@ export class CanvasEngine {
   };
 
   private handleStrokeEnd = (): void => {
+    if (this.isErasing) {
+      if (this.didEraseDuringGesture && this.preEraseStrokesSnapshot) {
+        this.history.recordBeforeMutation(this.preEraseStrokesSnapshot);
+        this.notifyHistoryChange();
+      }
+      this.isErasing = false;
+      this.preEraseStrokesSnapshot = null;
+      this.didEraseDuringGesture = false;
+      this.lastErasePoint = null;
+      this.scheduleRender();
+      return;
+    }
+
     if (!this.activeStroke) return;
 
     const completedStroke = this.activeStroke;
     this.activeStroke = null;
 
     if (completedStroke.points.length > 0) {
+      this.history.recordBeforeMutation(this.strokes);
       completedStroke.bbox = computeStrokeBoundingBox(
         completedStroke.points,
         completedStroke.size
       );
       completedStroke.cachedPath = buildStrokePath2D(completedStroke, true);
       this.strokes.push(completedStroke);
+      this.notifyHistoryChange();
     }
 
     this.scheduleRender();
   };
 
   private handleStrokeCancel = (): void => {
+    if (this.isErasing) {
+      // Restore pre-erase strokes if the pointer gesture was cancelled (e.g., palm/multi-touch cancel)
+      if (this.preEraseStrokesSnapshot) {
+        this.strokes = [...this.preEraseStrokesSnapshot];
+      }
+      this.isErasing = false;
+      this.preEraseStrokesSnapshot = null;
+      this.didEraseDuringGesture = false;
+      this.lastErasePoint = null;
+      this.scheduleRender();
+      return;
+    }
+
     if (!this.activeStroke) return;
     this.activeStroke = null;
     this.scheduleRender();
   };
+
+  private applyEraserSegment(p0: StrokePoint, p1: StrokePoint): void {
+    if (this.strokes.length === 0) return;
+
+    const eraserRadius = this.settings.eraserSize / 2;
+    const { strokes: updatedStrokes, didModify } = eraseStrokesAlongSegment(
+      this.strokes,
+      p0.x,
+      p0.y,
+      p1.x,
+      p1.y,
+      eraserRadius,
+      this.nextStrokeId
+    );
+
+    if (didModify) {
+      this.strokes = updatedStrokes;
+      this.didEraseDuringGesture = true;
+    }
+  }
 
   /**
    * Schedules a single `requestAnimationFrame` callback when state is dirty.
@@ -267,8 +420,6 @@ export class CanvasEngine {
 
     // Pass 1: Render all visible highlighter strokes onto the offscreen highlighter buffer
     // at 100% opacity, then composite the buffer once at HIGHLIGHTER_OPACITY (0.36).
-    // This guarantees uniform translucency with zero excessive darkening where highlights overlap,
-    // and keeps highlights visually underneath crisp pen strokes.
     if (hasVisibleHighlighters) {
       hlCtx.save();
       hlCtx.setTransform(1, 0, 0, 1, 0, 0);
@@ -326,6 +477,30 @@ export class CanvasEngine {
 
     if (this.activeStroke && this.activeStroke.tool === 'pen') {
       renderStroke(ctx, this.activeStroke, false);
+    }
+
+    // Pass 3: Render visual eraser cursor ring when Eraser tool is active
+    if (this.settings.activeTool === 'eraser' && this.eraserCursorDocPos) {
+      const radius = this.settings.eraserSize / 2;
+      const { x, y } = this.eraserCursorDocPos;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = this.isErasing
+        ? 'rgba(255, 255, 255, 0.22)'
+        : 'rgba(255, 255, 255, 0.1)';
+      ctx.fill();
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = 'rgba(24, 24, 27, 0.85)';
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(1, radius - 1.2), 0, Math.PI * 2);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.stroke();
+      ctx.restore();
     }
 
     ctx.restore();

@@ -2,6 +2,22 @@
 
 All notable changes to the **PageInk** Chrome extension are documented in this file.
 
+## [0.4.0] - Phase 4: Eraser, Undo, Redo and Clear All
+
+### Added
+- **Partial Segment Eraser** (`src/engine/EraserEngine.ts`):
+  - Implemented two-stage hit testing: fast axis-aligned bounding-box (AABB) rejection (`doesEraserSweepIntersectBbox`) followed by swept capsule segment distance checks (`distToSegmentSquared`).
+  - Added automatic segment densification (`densifyStrokePoints`) with linear pressure interpolation so fast strokes with widely spaced sample points split cleanly in their interior.
+  - Implemented stroke partitioning (`eraseStrokesAlongSegment`) that splits intersected Pen and Highlighter strokes into surviving contiguous segments while preserving original color, thickness, tool type, z-order, and per-point stylus pressure.
+  - Added a dual-ring visual eraser cursor rendered on the overlay canvas (`CanvasEngine.ts`) with native cursor hiding (`pi-eraser-cursor`).
+- **Undo, Redo & Clear All History Manager** (`src/engine/HistoryManager.ts`):
+  - Implemented `HistoryManager` using structural-sharing immutable stroke-list snapshots (`readonly Stroke[]`) so unchanged strokes share memory and cached `Path2D` instances across history states.
+  - Grouped continuous eraser drag movements into a single logical Undo entry committed on `pointerup` (and rolled back if `pointercancel` occurs).
+  - Implemented one-click `Clear All` (`clearAll()`) that is fully reversible via `Undo` and repeatable via `Redo`.
+  - Connected `Eraser`, `Undo`, `Redo`, and `Clear All` buttons in `Toolbar.tsx` and `OverlayApp.tsx`, including reactive disabled states and `Ctrl+Z` / `Ctrl+Y` / `Ctrl+Shift+Z` keyboard shortcuts.
+
+---
+
 ## [0.3.0] - Phase 3: Stylus Pressure and Highlighter
 
 ### Added

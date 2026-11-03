@@ -9,17 +9,26 @@ import {
   X,
   GripVertical,
 } from 'lucide-react';
+import { HistoryStateSnapshot } from '../engine/HistoryManager';
 import { ToolSettings, ToolType } from '../types/tools';
 
 interface ToolbarProps {
   settings: ToolSettings;
+  historyState: HistoryStateSnapshot;
   onSelectTool: (tool: ToolType) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  onClearAll: () => void;
   onClose: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
   settings,
+  historyState,
   onSelectTool,
+  onUndo,
+  onRedo,
+  onClearAll,
   onClose,
 }) => {
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
@@ -43,11 +52,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     const onPointerMove = (moveEvent: PointerEvent) => {
       const nextX = Math.max(
         8,
-        Math.min(window.innerWidth - rect.width - 8, moveEvent.clientX - dragOffset.current.x)
+        Math.min(
+          window.innerWidth - rect.width - 8,
+          moveEvent.clientX - dragOffset.current.x
+        )
       );
       const nextY = Math.max(
         8,
-        Math.min(window.innerHeight - rect.height - 8, moveEvent.clientY - dragOffset.current.y)
+        Math.min(
+          window.innerHeight - rect.height - 8,
+          moveEvent.clientY - dragOffset.current.y
+        )
       );
       setPosition({ x: nextX, y: nextY });
     };
@@ -127,8 +142,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <button
             type="button"
             className="pi-btn"
-            disabled
-            title="Undo"
+            disabled={!historyState.canUndo}
+            onClick={onUndo}
+            title="Undo (Ctrl+Z)"
             aria-label="Undo"
           >
             <Undo2 size={16} />
@@ -136,8 +152,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <button
             type="button"
             className="pi-btn"
-            disabled
-            title="Redo"
+            disabled={!historyState.canRedo}
+            onClick={onRedo}
+            title="Redo (Ctrl+Y)"
             aria-label="Redo"
           >
             <Redo2 size={16} />
@@ -145,7 +162,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <button
             type="button"
             className="pi-btn pi-danger"
-            disabled
+            disabled={!historyState.hasStrokes}
+            onClick={onClearAll}
             title="Clear All"
             aria-label="Clear All"
           >

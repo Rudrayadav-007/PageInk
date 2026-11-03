@@ -26,6 +26,10 @@
   cursor: crosshair;
 }
 
+.pi-canvas.pi-eraser-cursor {
+  cursor: none;
+}
+
 .pi-canvas.pi-passthrough {
   pointer-events: none;
   cursor: default;
