@@ -2,6 +2,22 @@
 
 All notable changes to the **PageInk** Chrome extension are documented in this file.
 
+## [0.6.0] - Phase 6: Final Engineering, Browser Integration and Release Readiness
+
+### Added
+- **Hold-Space Webpage Interaction (Browse Mode)** (`src/components/OverlayApp.tsx`, `src/engine/CanvasEngine.ts`):
+  - Holding `Space` temporarily switches the drawing canvas to click-through (`pi-passthrough`), commits any in-progress stroke cleanly, and lets users scroll, click links/buttons, or select text on the underlying webpage while keeping the toolbar interactive.
+  - Added `isEditableEventTarget()` guard (`composedPath()` inspection) so typing `Space` or `Ctrl+Z` inside webpage `<input>`, `<textarea>`, `select`, or `contentEditable` elements is never hijacked.
+- **SPA Scroll Container & Browser Zoom / DPR Tracking** (`src/engine/CanvasEngine.ts`):
+  - Added capture-phase scroll tracking (`handleDocumentScroll`) so single-page applications that scroll inside a main viewport container (such as ChatGPT) keep annotations aligned alongside standard `window.scrollX`/`scrollY` pages.
+  - Added `visualViewport` and `window.matchMedia('(resolution: ...dppx)')` listeners to detect browser zoom and multi-monitor `devicePixelRatio` changes immediately.
+  - Added viewport resize clamping to `Toolbar.tsx` so a dragged toolbar never gets stranded offscreen when the browser window shrinks.
+- **Session Cleanup & Singleton Guard** (`entrypoints/content.tsx`, `entrypoints/background.ts`):
+  - Added `window.__PAGEINK_CONTROLLER__` singleton guard and `ctx.onInvalidated` teardown to guarantee zero duplicate Shadow DOM roots, ghost canvases, or orphaned listeners.
+  - Added `docs/TESTING.md` with manual browser verification and XP-Pen Artist/Deco hardware validation checklists.
+
+---
+
 ## [0.5.0] - Phase 5: Toolbar Polish and Drawing Controls
 
 ### Added

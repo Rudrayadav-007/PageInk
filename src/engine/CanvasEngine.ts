@@ -2,7 +2,7 @@ import type { Stroke, StrokePoint } from '../types/stroke';
 import { HIGHLIGHTER_OPACITY, type ToolSettings } from '../types/tools';
 import { eraseStrokesAlongSegment } from './EraserEngine';
 import { HistoryManager, type HistoryStateSnapshot } from './HistoryManager';
-import { PointerInputHandler } from './PointerInputHandler';
+import { PointerInputHandler, type ScrollOffsets } from './PointerInputHandler';
 import {
   buildStrokePath2D,
   computeStrokeBoundingBox,
@@ -17,12 +17,12 @@ export type HistoryChangeListener = (snapshot: HistoryStateSnapshot) => void;
  * Completely decoupled from React state during pointer movement to guarantee
  * zero React re-renders while drawing/erasing and minimal input-to-photon latency.
  *
- * Layering & Highlighter Strategy:
- * - Highlighter strokes are rendered onto an offscreen viewport buffer at full
- *   alpha (`1.0`), then composited onto the main canvas at `HIGHLIGHTER_OPACITY` (`0.36`)
- *   underneath opaque Pen strokes.
- * - Continuous eraser drags split intersected strokes in real time while grouping
- *   the entire drag gesture into a single logical Undo history entry on release.
+ * Layering & Coordinate Strategy:
+ * - Stores stroke coordinates in document space (`clientX + scrollX`, `clientY + scrollY`).
+ * - Tracks both window scrolling (`window.scrollX`/`scrollY`) and inner scrollable containers
+ *   (used by SPAs such as ChatGPT) via a capture-phase scroll listener.
+ * - Monitors `window.resize`, `visualViewport.resize`, and `matchMedia('(resolution: ...)')`
+ *   to handle browser zoom and multi-monitor `devicePixelRatio` changes seamlessly.
  */
 export class CanvasEngine {
   private canvas: HTMLCanvasElement;
@@ -36,6 +36,13 @@ export class CanvasEngine {
   private settings: ToolSettings;
   private strokes: Stroke[] = [];
   private activeStroke: Stroke | null = null;
+  private isPassthrough = false;
+
+  // Scroll tracking (supports both window scroll and primary inner SPA scroll container)
+  private activeScrollElement: Element | null = null;
+
+  // DPR media query listener cleanup
+  private dprMediaQuery: MediaQueryList | null = null;
 
   // Eraser session state
   private isErasing = false;
@@ -76,12 +83,15 @@ export class CanvasEngine {
     this.onHistoryChange = onHistoryChange;
 
     this.updateCanvasDimensions();
+    this.setupDprObserver();
 
     this.pointerHandler = new PointerInputHandler(this.canvas, {
       canStartStroke: () =>
-        this.settings.activeTool === 'pen' ||
-        this.settings.activeTool === 'highlighter' ||
-        this.settings.activeTool === 'eraser',
+        !this.isPassthrough &&
+        (this.settings.activeTool === 'pen' ||
+          this.settings.activeTool === 'highlighter' ||
+          this.settings.activeTool === 'eraser'),
+      getScrollOffsets: this.getScrollOffsets,
       onStrokeStart: this.handleStrokeStart,
       onStrokeMove: this.handleStrokeMove,
       onStrokeEnd: this.handleStrokeEnd,
@@ -90,7 +100,18 @@ export class CanvasEngine {
     });
 
     window.addEventListener('resize', this.handleWindowResize, { passive: true });
-    window.addEventListener('scroll', this.handleWindowScroll, { passive: true });
+    // Capture-phase scroll listener catches both window scrolling and SPA scroll containers (e.g. ChatGPT)
+    window.addEventListener('scroll', this.handleDocumentScroll, {
+      capture: true,
+      passive: true,
+    });
+    window.visualViewport?.addEventListener('resize', this.handleWindowResize, {
+      passive: true,
+    });
+    window.visualViewport?.addEventListener('scroll', this.handleWindowScroll, {
+      passive: true,
+    });
+
     this.notifyHistoryChange();
   }
 
@@ -98,6 +119,23 @@ export class CanvasEngine {
     const prevTool = this.settings.activeTool;
     this.settings = { ...newSettings };
     if (prevTool !== newSettings.activeTool) {
+      if (newSettings.activeTool !== 'eraser') {
+        this.eraserCursorDocPos = null;
+      }
+      this.scheduleRender();
+    }
+  }
+
+  /**
+   * Toggles temporary webpage browse/passthrough mode (e.g. while holding Space).
+   * If a stroke or erase gesture is currently in progress, commits it cleanly first.
+   */
+  public setPassthrough(passthrough: boolean): void {
+    if (this.isPassthrough === passthrough) return;
+    this.isPassthrough = passthrough;
+    if (passthrough) {
+      this.pointerHandler.finishCurrentStrokeIfActive();
+      this.eraserCursorDocPos = null;
       this.scheduleRender();
     }
   }
@@ -145,14 +183,60 @@ export class CanvasEngine {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
     }
+    this.teardownDprObserver();
     this.pointerHandler.destroy();
     window.removeEventListener('resize', this.handleWindowResize);
-    window.removeEventListener('scroll', this.handleWindowScroll);
+    window.removeEventListener('scroll', this.handleDocumentScroll, { capture: true });
+    window.visualViewport?.removeEventListener('resize', this.handleWindowResize);
+    window.visualViewport?.removeEventListener('scroll', this.handleWindowScroll);
     this.history.clear();
     this.strokes = [];
     this.activeStroke = null;
     this.preEraseStrokesSnapshot = null;
+    this.activeScrollElement = null;
   }
+
+  /**
+   * Returns the effective document scroll offsets, combining `window.scrollX`/`scrollY`
+   * with the primary inner scroll container when on an SPA like ChatGPT whose `window.scrollY` stays `0`.
+   */
+  public getScrollOffsets = (): ScrollOffsets => {
+    let scrollX = window.scrollX || document.documentElement.scrollLeft || 0;
+    let scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+
+    if (
+      scrollX === 0 &&
+      scrollY === 0 &&
+      this.activeScrollElement &&
+      this.activeScrollElement.isConnected
+    ) {
+      scrollX = this.activeScrollElement.scrollLeft;
+      scrollY = this.activeScrollElement.scrollTop;
+    }
+
+    return { scrollX, scrollY };
+  };
+
+  private setupDprObserver(): void {
+    this.teardownDprObserver();
+    if (typeof window.matchMedia !== 'function') return;
+    const currentDpr = window.devicePixelRatio || 1;
+    this.dprMediaQuery = window.matchMedia(`(resolution: ${currentDpr}dppx)`);
+    this.dprMediaQuery.addEventListener('change', this.handleDprChange);
+  }
+
+  private teardownDprObserver(): void {
+    if (this.dprMediaQuery) {
+      this.dprMediaQuery.removeEventListener('change', this.handleDprChange);
+      this.dprMediaQuery = null;
+    }
+  }
+
+  private handleDprChange = (): void => {
+    this.setupDprObserver();
+    this.updateCanvasDimensions();
+    this.scheduleRender();
+  };
 
   private notifyHistoryChange(): void {
     this.onHistoryChange?.(this.history.getSnapshot(this.strokes));
@@ -172,8 +256,28 @@ export class CanvasEngine {
     this.scheduleRender();
   };
 
+  private handleDocumentScroll = (e: Event): void => {
+    const target = e.target;
+    if (
+      target instanceof Element &&
+      target !== document.documentElement &&
+      target !== document.body
+    ) {
+      // Only track large primary page scroll containers (at least 50% of viewport area)
+      // so small code-block or dropdown scrolls don't shift full-page annotations.
+      const rect = target.getBoundingClientRect();
+      if (
+        rect.width >= window.innerWidth * 0.5 &&
+        rect.height >= window.innerHeight * 0.5
+      ) {
+        this.activeScrollElement = target;
+      }
+    }
+    this.scheduleRender();
+  };
+
   private handleHoverMove = (point: StrokePoint | null): void => {
-    if (this.settings.activeTool !== 'eraser') {
+    if (this.settings.activeTool !== 'eraser' || this.isPassthrough) {
       if (this.eraserCursorDocPos !== null) {
         this.eraserCursorDocPos = null;
         this.scheduleRender();
@@ -187,7 +291,7 @@ export class CanvasEngine {
   /**
    * Synchronizes the backing store resolution of both the main canvas and the
    * offscreen highlighter buffer with the viewport CSS size and `window.devicePixelRatio`,
-   * then immediately redraws existing strokes so resizing never loses ink.
+   * then immediately redraws existing strokes so resizing or zooming never loses ink.
    */
   private updateCanvasDimensions(): void {
     const width = window.innerWidth;
@@ -337,7 +441,6 @@ export class CanvasEngine {
 
   private handleStrokeCancel = (): void => {
     if (this.isErasing) {
-      // Restore pre-erase strokes if the pointer gesture was cancelled (e.g., palm/multi-touch cancel)
       if (this.preEraseStrokesSnapshot) {
         this.strokes = [...this.preEraseStrokesSnapshot];
       }
@@ -395,8 +498,7 @@ export class CanvasEngine {
     const ctx = this.ctx;
     const hlCtx = this.highlighterCtx;
     const { viewportWidth, viewportHeight, dpr } = this;
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
+    const { scrollX, scrollY } = this.getScrollOffsets();
 
     ctx.save();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -420,8 +522,6 @@ export class CanvasEngine {
 
     // Pass 1: Render visible highlighter strokes grouped by color onto the offscreen
     // highlighter buffer at 100% opacity, then composite each color layer at HIGHLIGHTER_OPACITY (0.36).
-    // Grouping by color ensures overlapping strokes of the same highlighter color never darken
-    // excessively, while different highlighter colors remain distinct and translucent underneath Pen strokes.
     if (hasVisibleHighlighters) {
       const highlighterColors: string[] = [];
       for (let i = 0; i < this.strokes.length; i++) {
@@ -509,8 +609,12 @@ export class CanvasEngine {
       renderStroke(ctx, this.activeStroke, false);
     }
 
-    // Pass 3: Render visual eraser cursor ring when Eraser tool is active
-    if (this.settings.activeTool === 'eraser' && this.eraserCursorDocPos) {
+    // Pass 3: Render visual eraser cursor ring when Eraser tool is active and not in passthrough mode
+    if (
+      !this.isPassthrough &&
+      this.settings.activeTool === 'eraser' &&
+      this.eraserCursorDocPos
+    ) {
       const radius = this.settings.eraserSize / 2;
       const { x, y } = this.eraserCursorDocPos;
 

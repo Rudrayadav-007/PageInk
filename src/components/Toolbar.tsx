@@ -25,6 +25,7 @@ import {
 interface ToolbarProps {
   settings: ToolSettings;
   historyState: HistoryStateSnapshot;
+  isPassthrough?: boolean;
   onSelectTool: (tool: ToolType) => void;
   onSelectColor: (color: string) => void;
   onChangeSize: (size: number) => void;
@@ -37,6 +38,7 @@ interface ToolbarProps {
 export const Toolbar: React.FC<ToolbarProps> = ({
   settings,
   historyState,
+  isPassthrough = false,
   onSelectTool,
   onSelectColor,
   onChangeSize,
@@ -48,6 +50,28 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const toolbarRef = useRef<HTMLDivElement>(null);
+
+  // Keep dragged toolbar within viewport bounds when browser window resizes
+  React.useEffect(() => {
+    const handleResize = () => {
+      setPosition((prev) => {
+        if (!prev || !toolbarRef.current) return prev;
+        const rect = toolbarRef.current.getBoundingClientRect();
+        const clampedX = Math.max(
+          8,
+          Math.min(window.innerWidth - rect.width - 8, prev.x)
+        );
+        const clampedY = Math.max(
+          8,
+          Math.min(window.innerHeight - rect.height - 8, prev.y)
+        );
+        if (clampedX === prev.x && clampedY === prev.y) return prev;
+        return { x: clampedX, y: clampedY };
+      });
+    };
+    window.addEventListener('resize', handleResize, { passive: true });
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   const handlePointerDownDrag = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!toolbarRef.current) return;
@@ -122,7 +146,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   return (
     <div
       ref={toolbarRef}
-      className="pi-toolbar"
+      className={`pi-toolbar ${isPassthrough ? 'pi-toolbar-passthrough' : ''}`}
       style={style}
       aria-label="PageInk Toolbar"
       onPointerDown={(e) => e.stopPropagation()}
@@ -130,7 +154,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div className="pi-toolbar-row">
         <div
           className="pi-drag-handle"
-          title="Drag PageInk toolbar"
+          title="Drag PageInk toolbar (Hold Space to interact with webpage)"
           onPointerDown={handlePointerDownDrag}
         >
           <GripVertical size={15} />

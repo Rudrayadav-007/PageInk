@@ -16,8 +16,37 @@ interface OverlayAppProps {
   onClose: () => void;
 }
 
+/**
+ * Checks whether a keyboard event originated inside an editable webpage or shadow-DOM
+ * element (`<input>`, `<textarea>`, `<select>`, or `contentEditable`) so PageInk
+ * never hijacks `Space` or `Ctrl+Z` while the user is typing.
+ */
+export function isEditableEventTarget(e: KeyboardEvent): boolean {
+  const path = typeof e.composedPath === 'function' ? e.composedPath() : [e.target];
+  for (let i = 0; i < path.length; i++) {
+    const node = path[i];
+    if (!(node instanceof HTMLElement)) continue;
+    const tag = node.tagName;
+    if (tag === 'INPUT') {
+      // Allow range slider in our own toolbar to not block Space, but text inputs block Space
+      const inputType = (node as HTMLInputElement).type?.toLowerCase();
+      if (inputType !== 'range' && inputType !== 'button') {
+        return true;
+      }
+    }
+    if (tag === 'TEXTAREA' || tag === 'SELECT' || node.isContentEditable) {
+      return true;
+    }
+    if (node.getAttribute?.('role') === 'textbox') {
+      return true;
+    }
+  }
+  return false;
+}
+
 export const OverlayApp: React.FC<OverlayAppProps> = ({ onClose }) => {
   const [settings, setSettings] = useState<ToolSettings>(DEFAULT_TOOL_SETTINGS);
+  const [isPassthrough, setIsPassthrough] = useState(false);
   const [historyState, setHistoryState] = useState<HistoryStateSnapshot>({
     canUndo: false,
     canRedo: false,
@@ -59,6 +88,11 @@ export const OverlayApp: React.FC<OverlayAppProps> = ({ onClose }) => {
     engineRef.current?.updateSettings(settings);
   }, [settings]);
 
+  // Push Hold-Space passthrough updates to the engine
+  useEffect(() => {
+    engineRef.current?.setPassthrough(isPassthrough);
+  }, [isPassthrough]);
+
   const handleUndo = useCallback(() => {
     engineRef.current?.undo();
   }, []);
@@ -79,6 +113,20 @@ export const OverlayApp: React.FC<OverlayAppProps> = ({ onClose }) => {
         return;
       }
 
+      // Do not hijack Space or Undo/Redo shortcuts when the user is typing in an input, textarea, or contenteditable
+      if (isEditableEventTarget(e)) {
+        return;
+      }
+
+      if (e.code === 'Space' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        // Prevent Space from scrolling the page while held for temporary webpage interaction mode
+        e.preventDefault();
+        if (!e.repeat) {
+          setIsPassthrough(true);
+        }
+        return;
+      }
+
       // Support Ctrl+Z / Cmd+Z for Undo and Ctrl+Y / Ctrl+Shift+Z / Cmd+Shift+Z for Redo
       const isMod = e.ctrlKey || e.metaKey;
       if (isMod && !e.altKey) {
@@ -92,9 +140,24 @@ export const OverlayApp: React.FC<OverlayAppProps> = ({ onClose }) => {
         }
       }
     };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        setIsPassthrough(false);
+      }
+    };
+
+    const handleWindowBlur = () => {
+      setIsPassthrough(false);
+    };
+
     window.addEventListener('keydown', handleKeyDown, { capture: true });
+    window.addEventListener('keyup', handleKeyUp, { capture: true });
+    window.addEventListener('blur', handleWindowBlur);
     return () => {
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
+      window.removeEventListener('keyup', handleKeyUp, { capture: true });
+      window.removeEventListener('blur', handleWindowBlur);
     };
   }, [onClose, handleUndo, handleRedo]);
 
@@ -128,17 +191,24 @@ export const OverlayApp: React.FC<OverlayAppProps> = ({ onClose }) => {
     });
   }, []);
 
+  const canvasClasses = [
+    'pi-canvas',
+    isPassthrough
+      ? 'pi-passthrough'
+      : settings.activeTool === 'eraser'
+        ? 'pi-eraser-cursor'
+        : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
   return (
     <div className="pi-overlay-root">
-      <canvas
-        ref={canvasRef}
-        className={`pi-canvas ${
-          settings.activeTool === 'eraser' ? 'pi-eraser-cursor' : ''
-        }`}
-      />
+      <canvas ref={canvasRef} className={canvasClasses} />
       <Toolbar
         settings={settings}
         historyState={historyState}
+        isPassthrough={isPassthrough}
         onSelectTool={handleSelectTool}
         onSelectColor={handleSelectColor}
         onChangeSize={handleChangeSize}

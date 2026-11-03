@@ -43,6 +43,7 @@ flowchart TD
   - Owns the top-level `ToolSettings` state (`activeTool`, `color`, `highlighterColor`, `penSize`, `highlighterSize`, `eraserSize`) and lightweight `HistoryStateSnapshot` (`canUndo`, `canRedo`, `hasStrokes`).
   - Instantiates `CanvasEngine` once on mount via `useRef`, passing a `handleHistoryChange` callback that only updates React state when `canUndo`, `canRedo`, or `hasStrokes` actually flips.
   - Updates tool settings (`handleSelectTool`, `handleSelectColor`, `handleChangeSize`) in memory only and forwards them to `CanvasEngine` via `engine.updateSettings(settings)` without triggering redundant canvas redraws when only color or thickness changes.
+  - Manages **Hold-Space Passthrough (Browse Mode)** (`isPassthrough`), checking `isEditableEventTarget(e)` via `e.composedPath()` so `Space` and `Ctrl+Z` are never intercepted when typing in `<input>`, `<textarea>`, or `contentEditable` fields.
   - Listens for `Escape` (close) and `Ctrl+Z` / `Cmd+Z` / `Ctrl+Y` / `Ctrl+Shift+Z` (Undo/Redo) in the capture phase.
 - **`Toolbar`**:
   - Renders the `348px` floating dark-charcoal toolbar with primary tool buttons (`Pen`, `Highlighter`, `Eraser`, `Undo`, `Redo`, `Clear All`, `Close`).
