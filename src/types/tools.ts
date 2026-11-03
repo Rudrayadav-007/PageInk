@@ -3,6 +3,7 @@ export type ToolType = 'pen' | 'highlighter' | 'eraser';
 export interface ToolSettings {
   activeTool: ToolType;
   color: string;
+  highlighterColor: string;
   penSize: number;
   highlighterSize: number;
   eraserSize: number;
@@ -19,11 +20,13 @@ export const DEFAULT_COLORS = [
   '#1e1e1e', // Dark
 ] as const;
 
+export const HIGHLIGHTER_OPACITY = 0.36;
+
 export const DEFAULT_TOOL_SETTINGS: ToolSettings = {
   activeTool: 'pen',
   color: '#ef4444',
+  highlighterColor: '#facc15',
   penSize: 4,
-  highlighterSize: 20,
+  highlighterSize: 22,
   eraserSize: 18,
 };
-

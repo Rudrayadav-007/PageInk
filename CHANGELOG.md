@@ -2,6 +2,20 @@
 
 All notable changes to the **PageInk** Chrome extension are documented in this file.
 
+## [0.3.0] - Phase 3: Stylus Pressure and Highlighter
+
+### Added
+- **Stylus Pressure & Tablet Input** (`src/engine/PointerInputHandler.ts`, `src/engine/StrokeRenderer.ts`):
+  - Implemented hardware pressure detection (`detectHardwarePressure`) supporting both `pointerType === "pen"` and external tablet drivers that report `pointerType === "mouse"` while providing variable `PointerEvent.pressure`.
+  - Implemented `normalizeAndSmoothPressure` with a `0.8` gamma curve, exponential moving average (EMA) smoothing (`alpha = 0.45`), and a minimum pressure floor (`0.12`) to prevent sudden width jumps or zero-width strokes.
+  - Tuned `perfect-freehand` options separately for hardware-pressure styluses (`thinning: 0.62`, sine easing) versus standard mice (`thinning: 0.18`).
+  - Added multi-touch gesture cancellation and palm-rejection handoff when a pen touches down over an active touch contact.
+- **Highlighter Tool & Layer Compositing** (`src/engine/CanvasEngine.ts`, `src/types/tools.ts`):
+  - Connected the toolbar's **Highlighter** button to `CanvasEngine` with default semi-transparent yellow (`#facc15`, thickness `22px`, opacity `0.36`) and uniform marker width (`thinning: 0`).
+  - Added an offscreen viewport highlighter canvas buffer that merges visible highlighter strokes at `1.0` alpha before compositing once at `0.36` opacity underneath Pen strokes—preventing opacity buildup where highlights overlap and keeping pen strokes crisp on top.
+
+---
+
 ## [0.2.0] - Phase 2: Canvas Drawing Engine
 
 ### Added

@@ -1,4 +1,4 @@
-import { getStroke } from 'perfect-freehand';
+import { getStroke, type StrokeOptions } from 'perfect-freehand';
 import type { BoundingBox, Stroke, StrokePoint } from '../types/stroke';
 
 const average = (a: number, b: number): number => (a + b) / 2;
@@ -74,36 +74,68 @@ export function computeStrokeBoundingBox(
 }
 
 /**
- * Builds a `Path2D` for a stroke using `perfect-freehand` with Excalidraw-tuned
- * smoothing, streamline, thinning, and rounded start/end caps.
+ * Returns `perfect-freehand` options tuned separately for:
+ * 1. Highlighter: uniform marker thickness (`thinning: 0`) with smooth rounded caps
+ * 2. Pressure-sensitive Pen (`simulatePressure === false`): responsive variable-width
+ *    strokes (`thinning: 0.62`) driven directly by hardware stylus pressure
+ * 3. Mouse / Non-pressure Pen (`simulatePressure === true`): consistent, predictable
+ *    stroke width (`thinning: 0.18`) with subtle natural smoothing
  */
-export function buildStrokePath2D(
-  stroke: Pick<Stroke, 'points' | 'size' | 'tool' | 'simulatePressure'>,
+export function getStrokeOptionsForTool(
+  stroke: Pick<Stroke, 'size' | 'tool' | 'simulatePressure'>,
   isComplete: boolean
-): Path2D {
-  const { points, size, simulatePressure } = stroke;
-  if (points.length === 0) {
-    return new Path2D();
+): StrokeOptions {
+  const { size, tool, simulatePressure } = stroke;
+
+  if (tool === 'highlighter') {
+    return {
+      size,
+      thinning: 0,
+      smoothing: 0.65,
+      streamline: 0.6,
+      simulatePressure: false,
+      easing: (t) => t,
+      last: isComplete,
+      start: {
+        cap: true,
+        taper: 0,
+      },
+      end: {
+        cap: true,
+        taper: 0,
+      },
+    };
   }
 
-  // Single-dot tap: render a clean circular dot with rounded edges
-  if (points.length === 1) {
-    const pt = points[0];
-    const radius = Math.max(1, size / 2);
-    const dotPath = new Path2D();
-    dotPath.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
-    return dotPath;
+  if (!simulatePressure) {
+    // Hardware stylus pressure curve: natural variable width
+    return {
+      size,
+      thinning: 0.62,
+      smoothing: 0.58,
+      streamline: 0.46,
+      simulatePressure: false,
+      easing: (t) => Math.sin((t * Math.PI) / 2),
+      last: isComplete,
+      start: {
+        cap: true,
+        taper: 0,
+      },
+      end: {
+        cap: true,
+        taper: 0,
+      },
+    };
   }
 
-  const inputPoints = points.map((p) => [p.x, p.y, p.pressure]);
-
-  const outlinePoints = getStroke(inputPoints, {
+  // Mouse / non-pressure fallback: consistent stroke width
+  return {
     size,
-    thinning: 0.5,
+    thinning: 0.18,
     smoothing: 0.55,
     streamline: 0.5,
+    simulatePressure: true,
     easing: (t) => t,
-    simulatePressure,
     last: isComplete,
     start: {
       cap: true,
@@ -113,7 +145,38 @@ export function buildStrokePath2D(
       cap: true,
       taper: 0,
     },
-  });
+  };
+}
+
+/**
+ * Builds a `Path2D` for a stroke using `perfect-freehand` with tool-specific
+ * smoothing, streamline, thinning, and rounded start/end caps.
+ */
+export function buildStrokePath2D(
+  stroke: Pick<Stroke, 'points' | 'size' | 'tool' | 'simulatePressure'>,
+  isComplete: boolean
+): Path2D {
+  const { points, size, tool, simulatePressure } = stroke;
+  if (points.length === 0) {
+    return new Path2D();
+  }
+
+  // Single-dot tap: render a clean circular dot with rounded edges, scaled by stylus pressure for pen
+  if (points.length === 1) {
+    const pt = points[0];
+    const pressureFactor =
+      tool === 'pen' && !simulatePressure
+        ? Math.max(0.35, pt.pressure)
+        : 1;
+    const radius = Math.max(1, (size * pressureFactor) / 2);
+    const dotPath = new Path2D();
+    dotPath.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
+    return dotPath;
+  }
+
+  const inputPoints = points.map((p) => [p.x, p.y, p.pressure]);
+  const options = getStrokeOptionsForTool(stroke, isComplete);
+  const outlinePoints = getStroke(inputPoints, options);
 
   const pathData = getSvgPathFromStroke(outlinePoints, true);
   return pathData ? new Path2D(pathData) : new Path2D();
@@ -139,6 +202,23 @@ export function isBoundingBoxVisible(
 }
 
 /**
+ * Resolves a cached `Path2D` for a stroke (or builds one for an active stroke).
+ */
+export function resolveStrokePath2D(
+  stroke: Stroke,
+  isComplete: boolean
+): Path2D {
+  let path = stroke.cachedPath;
+  if (!path) {
+    path = buildStrokePath2D(stroke, isComplete);
+    if (isComplete) {
+      stroke.cachedPath = path;
+    }
+  }
+  return path;
+}
+
+/**
  * Renders a single stroke onto a 2D canvas context that has already been
  * translated by `(-scrollX, -scrollY)`.
  */
@@ -147,13 +227,7 @@ export function renderStroke(
   stroke: Stroke,
   isComplete: boolean
 ): void {
-  let path = stroke.cachedPath;
-  if (!path) {
-    path = buildStrokePath2D(stroke, isComplete);
-    if (isComplete) {
-      stroke.cachedPath = path;
-    }
-  }
+  const path = resolveStrokePath2D(stroke, isComplete);
 
   ctx.save();
   ctx.fillStyle = stroke.color;

@@ -6,17 +6,22 @@ Designed for studying technical documentation, ChatGPT responses, code blocks, a
 
 ---
 
-## Current Implemented Features (Phase 2)
+## Current Implemented Features (Phase 3)
 
 - **On-Demand Activation**: Click the PageInk toolbar icon to inject and toggle the drawing overlay on the active tab (`activeTab` + `scripting` permissions only).
 - **Shadow DOM Isolation**: Renders the floating toolbar and viewport canvas inside an isolated Shadow DOM root (`<pageink-overlay>`) so host webpage styles and DOM remain untouched.
-- **Compact Draggable Toolbar**: Excalidraw-inspired dark charcoal floating toolbar (`344px` wide) with Lucide icons, active tool state, drag handle, and `Escape` / Close button dismissal.
-- **Smooth Freehand Pen Engine**:
+- **Compact Draggable Toolbar**: Excalidraw-inspired dark charcoal floating toolbar (`344px` wide) with Lucide icons, active tool state (`Pen`, `Highlighter`, `Eraser`), drag handle, and `Escape` / Close button dismissal.
+- **Pressure-Sensitive Stylus & Smooth Freehand Pen Engine**:
   - Powered by `perfect-freehand` and quadratic Bézier `Path2D` splines with rounded caps.
+  - Captures real hardware stylus pressure (`PointerEvent.pressure`) with a gentle gamma response curve, exponential moving average (EMA) pressure smoothing, and a safe minimum pressure floor (`0.12`) to prevent zero-width strokes.
+  - Hardware-agnostic pressure detection supporting standard Windows Ink / Wintab styluses (`pointerType === "pen"`) as well as external drawing tablets (XP-Pen Artist/Deco, Wacom) even when a driver emulates mouse pointer events while exposing variable pressure.
+  - Consistent fallback stroke thickness for standard mice and non-pressure touchpads.
+  - Multi-touch and palm-rejection safeguards so two-finger scroll/pinch gestures or stray palm contact do not leave unintended ink.
   - High-DPI (`window.devicePixelRatio`) viewport canvas that preserves strokes across window resizes.
-  - Pointer Events API with pointer capture (`setPointerCapture`), coalesced sample extraction (`getCoalescedEvents()`), sub-pixel filtering, and webpage text-selection prevention.
   - Document-coordinate stroke storage (`clientX + scrollX`, `clientY + scrollY`) with bounding-box viewport culling and on-demand `requestAnimationFrame` rendering.
-  - Zero React state updates during pointer movement for minimal input latency.
+- **Translucent Highlighter Tool**:
+  - Smooth, uniform-width (`thinning: 0`) freehand marker strokes with rounded caps and semi-transparent yellow (`#facc15` at `0.36` opacity) default.
+  - Offscreen layer compositing strategy: all visible highlighter strokes render at `1.0` alpha onto a dedicated offscreen viewport buffer and composite once at `0.36` opacity underneath Pen strokes—preventing overlapping highlights from darkening excessively or washing out pen ink.
 - **Ephemeral In-Memory Session**: Closing the overlay completely removes listeners and discards session strokes from memory.
 
 ---
@@ -94,8 +99,7 @@ PageInk/
 
 ## Current Limitations & Upcoming Roadmap
 
-- **Phase 3 (Next)**: Pressure-sensitive stylus input tuning (`PointerEvent.pressure`), external drawing tablet support (XP-Pen Artist/Deco, Wacom, Windows Ink), multi-touch rejection, and translucent **Highlighter** tool.
-- **Phase 4**: True vector/segment **Eraser**, **Undo**, **Redo**, and **Clear All** history manager.
+- **Phase 4 (Next)**: True vector/segment **Eraser**, **Undo**, **Redo**, and **Clear All** history manager.
 - **Phase 5**: Interactive color palette and adjustable Pen / Highlighter thickness controls in the floating toolbar.
 - **Phase 6**: Hold `Space` for temporary webpage passthrough/scrolling, session cleanup hardening, and scroll performance optimizations.
 - **Phase 7**: Cross-site verification on dynamic web apps (ChatGPT, YouTube, technical documentation) and final production polish.

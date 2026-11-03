@@ -1,26 +1,100 @@
-import { StrokePoint } from '../types/stroke';
+import type { StrokePoint } from '../types/stroke';
 
 export interface PointerHandlerCallbacks {
   canStartStroke: (e: PointerEvent) => boolean;
-  onStrokeStart: (point: StrokePoint, simulatePressure: boolean, pointerType: string) => void;
-  onStrokeMove: (points: StrokePoint[]) => void;
+  onStrokeStart: (
+    point: StrokePoint,
+    simulatePressure: boolean,
+    pointerType: string
+  ) => void;
+  onStrokeMove: (points: StrokePoint[], simulatePressure: boolean) => void;
   onStrokeEnd: () => void;
   onStrokeCancel: () => void;
 }
 
+/** Minimum clamped pressure so light stylus contact never collapses to a 0-width stroke */
+export const MIN_STYLUS_PRESSURE = 0.12;
+/** Maximum clamped pressure */
+export const MAX_STYLUS_PRESSURE = 1.0;
+/** Default neutral fallback pressure when device/browser does not report pressure */
+export const FALLBACK_PRESSURE = 0.5;
+/** Exponential moving average factor for smoothing sudden stylus pressure spikes */
+const PRESSURE_SMOOTHING_ALPHA = 0.45;
+
+/**
+ * Normalizes raw `PointerEvent.pressure` into a natural handwriting curve
+ * in `[MIN_STYLUS_PRESSURE, MAX_STYLUS_PRESSURE]` and smooths rapid frame-to-frame
+ * pressure jumps with an exponential moving average.
+ */
+export function normalizeAndSmoothPressure(
+  rawPressure: number,
+  hasRealPressure: boolean,
+  previousPressure: number | null
+): number {
+  if (!hasRealPressure) {
+    return FALLBACK_PRESSURE;
+  }
+
+  // Clamp raw pressure into a safe positive range
+  const clamped = Math.max(0.01, Math.min(1, Number.isFinite(rawPressure) ? rawPressure : FALLBACK_PRESSURE));
+
+  // Apply a gentle gamma curve (exponent 0.8) so light/medium handwriting feels responsive
+  // without requiring heavy physical force on the tablet surface, then map into [0.12, 1.0].
+  const curved =
+    MIN_STYLUS_PRESSURE +
+    (MAX_STYLUS_PRESSURE - MIN_STYLUS_PRESSURE) * Math.pow(clamped, 0.8);
+
+  if (previousPressure === null) {
+    return Number(curved.toFixed(4));
+  }
+
+  const smoothed =
+    previousPressure + PRESSURE_SMOOTHING_ALPHA * (curved - previousPressure);
+  return Number(
+    Math.max(MIN_STYLUS_PRESSURE, Math.min(MAX_STYLUS_PRESSURE, smoothed)).toFixed(4)
+  );
+}
+
+/**
+ * Determines whether a `PointerEvent` carries real hardware pressure information.
+ * Supports:
+ * - Standard Windows Ink / Wintab `pointerType === "pen"` styluses (XP-Pen Artist, XP-Pen Deco, Wacom, Surface)
+ * - Tablets or drivers reporting `pointerType === "mouse"` or `"touch"` that nonetheless expose variable `e.pressure` (neither 0 nor 0.5).
+ */
+export function detectHardwarePressure(e: PointerEvent): boolean {
+  const p = e.pressure;
+  if (!Number.isFinite(p) || p <= 0 || p > 1) {
+    return false;
+  }
+  // In Pointer Events spec, active non-pressure devices report exactly 0.5.
+  // Any value distinct from 0.5 (even if pointerType is "mouse" on a custom tablet driver)
+  // indicates real hardware pressure modulation.
+  if (Math.abs(p - 0.5) > 0.001) {
+    return true;
+  }
+  // If pointerType is explicitly 'pen', treat 0.5 on initial contact as real pen input
+  // so subsequent pressure samples use hardware pressure rather than velocity simulation.
+  return e.pointerType === 'pen';
+}
+
 /**
  * Handles low-latency Pointer Events on the drawing canvas, including:
+ * - Stylus pressure normalization and smoothing (XP-Pen, Wacom, Windows Ink, mouse-emulated tablets)
+ * - Multi-touch rejection so palm/pinch gestures do not trigger unintended strokes
  * - Pointer capture (`setPointerCapture` / `releasePointerCapture`)
  * - Coalesced event extraction (`getCoalescedEvents()`) for high-report-rate mice & styluses
  * - Viewport clamping so strokes stay within the visible browser viewport
  * - Prevention of accidental webpage text selection or native drag gestures
- * - Clean handling of `pointercancel`, `lostpointercapture`, and window blur
  */
 export class PointerInputHandler {
   private canvas: HTMLCanvasElement;
   private callbacks: PointerHandlerCallbacks;
   private activePointerId: number | null = null;
+  private activePointerType: string | null = null;
+  private activeTouchPointers = new Set<number>();
+  private hasRealPressure = false;
   private lastPoint: StrokePoint | null = null;
+  private lastSmoothedPressure: number | null = null;
 
   constructor(canvas: HTMLCanvasElement, callbacks: PointerHandlerCallbacks) {
     this.canvas = canvas;
@@ -40,6 +114,7 @@ export class PointerInputHandler {
 
   public destroy(): void {
     this.releaseActivePointerCapture();
+    this.activeTouchPointers.clear();
     this.canvas.removeEventListener('pointerdown', this.handlePointerDown);
     this.canvas.removeEventListener('pointermove', this.handlePointerMove);
     this.canvas.removeEventListener('pointerup', this.handlePointerUp);
@@ -56,6 +131,7 @@ export class PointerInputHandler {
   };
 
   private handleWindowBlur = (): void => {
+    this.activeTouchPointers.clear();
     if (this.activePointerId !== null) {
       this.finishActiveStroke(false);
     }
@@ -63,16 +139,23 @@ export class PointerInputHandler {
 
   /**
    * Clamps client coordinates to the visible browser viewport and converts
-   * them into document coordinates (`clientX + scrollX`, `clientY + scrollY`).
+   * them into document coordinates (`clientX + scrollX`, `clientY + scrollY`)
+   * with normalized and smoothed stylus pressure.
    */
   private extractStrokePoint(e: PointerEvent): StrokePoint {
     const clampedX = Math.max(0, Math.min(window.innerWidth, e.clientX));
     const clampedY = Math.max(0, Math.min(window.innerHeight, e.clientY));
 
-    // Default mouse pressure when buttons=1 is 0.5 in Pointer Events spec
-    const rawPressure = e.pressure;
-    const pressure =
-      rawPressure > 0 && rawPressure <= 1 ? rawPressure : 0.5;
+    if (!this.hasRealPressure && detectHardwarePressure(e)) {
+      this.hasRealPressure = true;
+    }
+
+    const pressure = normalizeAndSmoothPressure(
+      e.pressure,
+      this.hasRealPressure,
+      this.lastSmoothedPressure
+    );
+    this.lastSmoothedPressure = pressure;
 
     return {
       x: clampedX + window.scrollX,
@@ -81,22 +164,33 @@ export class PointerInputHandler {
     };
   }
 
-  /**
-   * Determines whether `perfect-freehand` should simulate velocity-based pressure
-   * (true for mouse or devices reporting fixed 0.5/0 pressure).
-   */
-  private shouldSimulatePressure(e: PointerEvent): boolean {
-    if (e.pointerType === 'mouse') {
-      return true;
-    }
-    return e.pressure === 0 || e.pressure === 0.5;
-  }
-
   private handlePointerDown = (e: PointerEvent): void => {
-    // Only primary button (left click / stylus tip / primary touch) starts a stroke
+    if (e.pointerType === 'touch') {
+      this.activeTouchPointers.add(e.pointerId);
+      // Multi-touch gesture detected (e.g., two-finger pinch/scroll or palm + finger):
+      // cancel any active touch stroke immediately to avoid accidental drawing.
+      if (this.activeTouchPointers.size > 1) {
+        if (this.activePointerId !== null && this.activePointerType === 'touch') {
+          this.finishActiveStroke(true);
+        }
+        return;
+      }
+    }
+
+    // Only primary contact (left mouse button / stylus tip / single touch) starts a stroke
     if (e.button !== 0) return;
 
-    // Ignore secondary pointers if a stroke is already in progress (prevents multi-touch interference)
+    // If a stylus/pen touches down while a touch stroke just started (palm rejection),
+    // cancel the accidental touch stroke and let the stylus take over.
+    if (
+      this.activePointerId !== null &&
+      this.activePointerType === 'touch' &&
+      e.pointerType === 'pen'
+    ) {
+      this.finishActiveStroke(true);
+    }
+
+    // Ignore secondary pointers if a stroke is already in progress
     if (this.activePointerId !== null) return;
 
     if (!this.callbacks.canStartStroke(e)) return;
@@ -111,6 +205,10 @@ export class PointerInputHandler {
     }
 
     this.activePointerId = e.pointerId;
+    this.activePointerType = e.pointerType || 'mouse';
+    this.hasRealPressure = detectHardwarePressure(e);
+    this.lastSmoothedPressure = null;
+
     try {
       this.canvas.setPointerCapture(e.pointerId);
     } catch {
@@ -122,8 +220,8 @@ export class PointerInputHandler {
 
     this.callbacks.onStrokeStart(
       startPoint,
-      this.shouldSimulatePressure(e),
-      e.pointerType
+      !this.hasRealPressure,
+      this.activePointerType
     );
   };
 
@@ -144,13 +242,15 @@ export class PointerInputHandler {
     const newPoints: StrokePoint[] = [];
 
     for (let i = 0; i < eventsToProcess.length; i++) {
-      const pt = this.extractStrokePoint(eventsToProcess[i]);
+      const sample = eventsToProcess[i];
+      const pt = this.extractStrokePoint(sample);
 
-      // Filter out duplicate sub-pixel samples to keep perfect-freehand spline clean
+      // Filter out duplicate sub-pixel samples unless pressure changed meaningfully
       if (this.lastPoint) {
         const dx = pt.x - this.lastPoint.x;
         const dy = pt.y - this.lastPoint.y;
-        if (dx * dx + dy * dy < 0.25) {
+        const dp = Math.abs(pt.pressure - this.lastPoint.pressure);
+        if (dx * dx + dy * dy < 0.2 && dp < 0.025) {
           continue;
         }
       }
@@ -160,11 +260,13 @@ export class PointerInputHandler {
     }
 
     if (newPoints.length > 0) {
-      this.callbacks.onStrokeMove(newPoints);
+      this.callbacks.onStrokeMove(newPoints, !this.hasRealPressure);
     }
   };
 
   private handlePointerUp = (e: PointerEvent): void => {
+    this.activeTouchPointers.delete(e.pointerId);
+
     if (this.activePointerId === null || e.pointerId !== this.activePointerId) {
       return;
     }
@@ -172,13 +274,12 @@ export class PointerInputHandler {
     e.preventDefault();
     e.stopPropagation();
 
-    // Capture the final release position if it moved slightly since the last pointermove
     const finalPoint = this.extractStrokePoint(e);
     if (this.lastPoint) {
       const dx = finalPoint.x - this.lastPoint.x;
       const dy = finalPoint.y - this.lastPoint.y;
-      if (dx * dx + dy * dy >= 0.25) {
-        this.callbacks.onStrokeMove([finalPoint]);
+      if (dx * dx + dy * dy >= 0.2) {
+        this.callbacks.onStrokeMove([finalPoint], !this.hasRealPressure);
       }
     }
 
@@ -186,6 +287,8 @@ export class PointerInputHandler {
   };
 
   private handlePointerCancel = (e: PointerEvent): void => {
+    this.activeTouchPointers.delete(e.pointerId);
+
     if (this.activePointerId === null || e.pointerId !== this.activePointerId) {
       return;
     }
@@ -193,17 +296,21 @@ export class PointerInputHandler {
   };
 
   private handleLostPointerCapture = (e: PointerEvent): void => {
+    this.activeTouchPointers.delete(e.pointerId);
+
     if (this.activePointerId === null || e.pointerId !== this.activePointerId) {
       return;
     }
-    // Commit whatever stroke points were drawn before pointer capture was lost
     this.finishActiveStroke(false);
   };
 
   private finishActiveStroke(isCancel: boolean): void {
     this.releaseActivePointerCapture();
     this.activePointerId = null;
+    this.activePointerType = null;
+    this.hasRealPressure = false;
     this.lastPoint = null;
+    this.lastSmoothedPressure = null;
 
     if (isCancel) {
       this.callbacks.onStrokeCancel();
@@ -224,4 +331,3 @@ export class PointerInputHandler {
     }
   }
 }
-

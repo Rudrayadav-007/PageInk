@@ -66,3 +66,4 @@ flowchart TD
 - **Outline Generation**: Uses `perfect-freehand`'s `getStroke()` to compute variable-width polygon outlines from input points and converts them into smooth quadratic Bézier SVG path strings (`getSvgPathFromStroke`).
 - **`Path2D` Caching**: While a stroke is actively being drawn (`isComplete = false`), its `Path2D` is computed per frame. Once completed on `pointerup`, the resulting `Path2D` and expanded `BoundingBox` are cached on the `Stroke` object so subsequent redraws (e.g., during scrolling or drawing new strokes) execute a fast native `ctx.fill(stroke.cachedPath)` without recalculating geometry.
 - **Viewport Culling**: `isBoundingBoxVisible()` skips `ctx.fill()` for any stroke whose document bounding box lies outside the current viewport rectangle.
+
