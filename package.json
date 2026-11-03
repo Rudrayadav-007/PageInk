@@ -1,0 +1,29 @@
+{
+  "name": "pageink",
+  "description": "Lightweight floating ink layer for drawing directly over webpages.",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip",
+    "compile": "tsc --noEmit",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "lucide-react": "^0.475.0",
+    "perfect-freehand": "^1.2.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.305",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@wxt-dev/module-react": "^1.1.3",
+    "typescript": "^5.7.3",
+    "wxt": "^0.19.29"
+  }
+}
+

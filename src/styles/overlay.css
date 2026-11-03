@@ -1,0 +1,128 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.pi-overlay-root {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 2147483647;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.pi-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.pi-canvas.pi-passthrough {
+  pointer-events: none;
+  cursor: default;
+}
+
+.pi-toolbar {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 344px;
+  background-color: #232329;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.25);
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: auto;
+  color: #e4e4e7;
+  z-index: 2147483647;
+}
+
+.pi-toolbar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.pi-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 30px;
+  color: #71717a;
+  cursor: grab;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.pi-drag-handle:active {
+  cursor: grabbing;
+}
+
+.pi-drag-handle:hover {
+  color: #a1a1aa;
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.pi-tool-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.pi-divider {
+  width: 1px;
+  height: 20px;
+  background-color: rgba(255, 255, 255, 0.12);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+.pi-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #d4d4d8;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.pi-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.pi-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pi-btn.pi-active {
+  background-color: #3b82f6;
+  color: #ffffff;
+}
+
+.pi-btn.pi-danger:hover:not(:disabled) {
+  background-color: rgba(239, 68, 68, 0.18);
+  color: #f87171;
+}
