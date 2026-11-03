@@ -19,8 +19,9 @@ flowchart TD
   App --> CanvasEl["<canvas class='pi-canvas'>"]
   CanvasEl --> Engine["CanvasEngine (Imperative TS)"]
   Engine --> Input["PointerInputHandler"]
+  Engine --> Wheel["WheelScrollHandler (Draw-Mode Scroll Target Detection)"]
   Engine --> Renderer["StrokeRenderer (perfect-freehand + Path2D)"]
-  Engine --> Eraser["EraserEngine (AABB + Capsule Segment Splitting)"]
+  Engine --> Eraser["EraserEngine (AABB + Whole-Stroke Capsule Hit Testing)"]
   Engine --> History["HistoryManager (Structural-Sharing Snapshots)"]
 ```
 
@@ -80,16 +81,22 @@ flowchart TD
 
 ---
 
-## 4. Partial Segment Eraser & History Architecture
+## 4. Whole-Stroke Eraser, Wheel Scrolling & History Architecture
+
+### `WheelScrollHandler` (`src/engine/WheelScrollHandler.ts`)
+Because the viewport-sized `<canvas>` sits above the webpage with `pointer-events: auto` while in Draw mode, native wheel events target the canvas rather than underlying scrollable `<div>` containers (such as ChatGPT's conversation scroller). `WheelScrollHandler` solves this cleanly without dispatching untrusted synthetic events:
+1. **Browser Zoom & Browse Mode Bypass**: If `e.ctrlKey` or `e.metaKey` is held (browser zoom / trackpad pinch) or if Hold-Space Browse Mode (`isPassthrough`) is active, the handler returns immediately so the browser's native behavior runs unmodified.
+2. **Underlying Element Hit-Testing**: Temporarily sets `canvas.style.pointerEvents = 'none'`, calls `document.elementFromPoint(e.clientX, e.clientY)` to identify the exact webpage element beneath the cursor, and immediately restores `canvas.style.pointerEvents`.
+3. **Scrollable Ancestor Resolution (`findScrollableTarget`)**: Walks up the DOM ancestor chain (including across Shadow DOM boundaries) checking `getComputedStyle(el).overflowY` / `overflowX` and remaining scroll range (`scrollTop < scrollHeight - clientHeight`, etc.) in the wheel's `(dx, dy)` direction. Falls back to `document.scrollingElement` when no inner container can scroll.
+4. **Direct Scroll Execution**: Calls `scrollTarget.scrollBy({ left: dx, top: dy, behavior: 'auto' })` and records primary page scroll containers on `CanvasEngine` so document-coordinate annotations stay locked to the scrolled content.
 
 ### `EraserEngine` (`src/engine/EraserEngine.ts`)
-Rather than painting over the canvas with a background color (which breaks on transparent overlays) or deleting an entire stroke as soon as its bounding box is touched, PageInk implements a true geometric segment-splitting eraser:
-1. **Stage 1 — Fast AABB Rejection (`doesEraserSweepIntersectBbox`)**: For each swept pointer movement segment `(x0, y0) -> (x1, y1)` with radius `eraserRadius`, strokes whose `BoundingBox` does not intersect the swept capsule's AABB are skipped in `O(1)` time, keeping their exact object reference and cached `Path2D`.
-2. **Stage 2 — Segment Densification (`densifyStrokePoints`)**: Candidate strokes have any point-to-point gap longer than `5px` linearly subdivided (interpolating `x`, `y`, and `pressure`). This ensures that even a fast, two-point straight line can be cleanly erased right through its middle.
-3. **Stage 3 — Capsule Hit Testing & Partitioning (`eraseStrokesAlongSegment`)**: Every point on the densified stroke is tested against the swept line segment `(x0, y0) -> (x1, y1)` using `distToSegmentSquared` with threshold `eraserRadius + stroke.size * 0.45`. Points inside the capsule are removed, and surviving contiguous point runs are emitted as new `Stroke` objects with freshly computed `BoundingBox` and `Path2D` caches—preserving original color, width, tool type, relative z-order, and per-point stylus pressure.
+PageInk implements a fast, whole-stroke geometric eraser:
+1. **Stage 1 — Fast AABB Rejection (`doesEraserSweepIntersectBbox`)**: For each swept pointer movement segment `(x0, y0) -> (x1, y1)` with radius `eraserRadius`, strokes whose `BoundingBox` does not intersect the swept capsule's AABB are skipped in `O(1)` time.
+2. **Stage 2 — Segment-to-Segment Capsule Hit Testing (`doesEraserHitStroke` & `segmentToSegmentDistSquared`)**: For candidate strokes, each polyline segment is tested against the swept eraser segment `(x0, y0) -> (x1, y1)` with hit threshold `eraserRadius + stroke.size * 0.5`. Touching the beginning, middle, or end of any Pen or Highlighter stroke removes that entire `Stroke` object while leaving separate overlapping strokes untouched.
 
 ### `HistoryManager` (`src/engine/HistoryManager.ts`)
-- **Structural-Sharing Immutable Snapshots**: Once a `Stroke` is committed (or emitted as a split fragment by `EraserEngine`), it is treated as immutable. Each entry in `undoStack` and `redoStack` is a shallow `readonly Stroke[]` array copy (`[...strokes]`).
-- **Zero Memory Duplication**: Unchanged strokes share the exact same `Stroke` object reference, `points` array, and `cachedPath` across all history snapshots.
-- **Grouped Continuous Erasing**: When an eraser drag begins (`pointerdown`), `CanvasEngine` snapshots `preEraseStrokesSnapshot = [...this.strokes]`. As the user drags across the canvas (`pointermove`), strokes are split interactively in real time without pushing intermediate states to `HistoryManager`. On `pointerup`, if at least one stroke was modified (`didEraseDuringGesture === true`), `preEraseStrokesSnapshot` is pushed as a single logical Undo entry. If the gesture is cancelled (`pointercancel`), `this.strokes` rolls back to `preEraseStrokesSnapshot`.
+- **Structural-Sharing Immutable Snapshots**: Each entry in `undoStack` and `redoStack` is a shallow `readonly Stroke[]` array copy (`[...strokes]`).
+- **Zero Memory Duplication**: Unchanged and erased strokes retain their exact `Stroke` object reference, `points` array, and `cachedPath` across all history snapshots—restoring a deleted stroke via Undo requires zero geometry recalculation.
+- **Grouped Continuous Erasing**: When an eraser drag begins (`pointerdown`), `CanvasEngine` snapshots `preEraseStrokesSnapshot = [...this.strokes]`. As the user drags across the canvas (`pointermove`), touched strokes are removed interactively in real time. On `pointerup`, if at least one stroke was removed (`didEraseDuringGesture === true`), `preEraseStrokesSnapshot` is pushed as a single logical Undo entry.
 - **Reversible Clear All**: `clearAll()` records the current stroke array via `history.recordBeforeMutation(this.strokes)` and replaces `this.strokes` with `[]`, allowing a single Undo to restore every Pen and Highlighter stroke in exact order and Redo to clear them again.

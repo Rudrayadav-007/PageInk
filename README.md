@@ -22,19 +22,22 @@ Designed for studying technical documentation, ChatGPT responses, code blocks, a
   - Multi-touch and palm-rejection safeguards so two-finger scroll/pinch gestures or stray palm contact do not leave unintended ink.
   - High-DPI (`window.devicePixelRatio`) viewport canvas that monitors window resize, `visualViewport`, and `matchMedia` resolution changes (browser zoom) without losing existing strokes.
   - Document-coordinate stroke storage (`clientX + scrollX`, `clientY + scrollY`) supporting both standard window scrolling and primary SPA scroll containers (such as ChatGPT conversations), with bounding-box viewport culling and on-demand `requestAnimationFrame` rendering.
+- **Natural Mouse-Wheel & Trackpad Scrolling in Draw Mode**:
+  - Scroll directly with the mouse wheel or two-finger trackpad (vertical and horizontal) while in Draw mode without hiding annotations or switching modes.
+  - Uses hit-test pass-through (`document.elementFromPoint()`) to detect and scroll nested scrollable containers (such as ChatGPT's conversation scroll area) or fall back to the document scrolling element, while preserving `Ctrl + wheel` browser zoom.
 - **Hold-Space Webpage Interaction (Browse Mode)**:
-  - Hold `Space` at any time to temporarily make the drawing canvas click-through (`pointer-events: none`), allowing normal webpage scrolling, clicking buttons/links, and selecting text.
+  - Hold `Space` at any time to temporarily make the drawing canvas click-through (`pointer-events: none`), allowing clicking buttons/links and selecting text on the underlying webpage.
   - Releasing `Space` immediately restores drawing mode.
   - Automatically ignores `Space` and keyboard shortcuts when typing inside webpage `<input>`, `<textarea>`, or `contenteditable` fields.
 - **Translucent Highlighter Tool**:
   - Smooth, uniform-width (`thinning: 0`) freehand marker strokes with rounded caps and configurable marker colors (Yellow, Green, Pink, Blue at `0.36` opacity).
   - Per-color offscreen layer compositing strategy: visible highlighter strokes of each color render at `1.0` alpha onto a dedicated offscreen viewport buffer and composite at `0.36` opacity underneath Pen strokes—preventing overlapping highlights of the same color from darkening excessively while keeping distinct highlighter colors crisp and underneath pen ink.
-- **Partial Segment Eraser**:
-  - Swept capsule hit-testing with fast axis-aligned bounding-box (AABB) rejection (`EraserEngine.ts`).
-  - Subdivides long stroke segments and splits intersected Pen or Highlighter strokes into surviving contiguous segments rather than deleting whole strokes, preserving original color, thickness, tool type, and per-point stylus pressure.
+- **Whole-Stroke Eraser**:
+  - Swept capsule segment-to-segment hit-testing with fast axis-aligned bounding-box (AABB) rejection (`EraserEngine.ts`).
+  - Touching any portion (beginning, middle, or end) of a continuous Pen or Highlighter stroke removes that entire stroke cleanly without affecting independent overlapping strokes.
   - High-contrast dual-ring visual eraser cursor rendered on the overlay canvas.
 - **Undo, Redo & Clear All History Manager**:
-  - Structural-sharing immutable snapshot history (`HistoryManager.ts`) supporting Pen strokes, Highlighter strokes, partial segment erasing, and one-click `Clear All`.
+  - Structural-sharing immutable snapshot history (`HistoryManager.ts`) supporting Pen strokes, Highlighter strokes, whole-stroke erasing, and one-click `Clear All`.
   - Groups continuous eraser drag gestures into a single logical Undo operation on pointer release.
   - Supports toolbar buttons as well as `Ctrl+Z` / `Cmd+Z` (Undo) and `Ctrl+Y` / `Ctrl+Shift+Z` / `Cmd+Shift+Z` (Redo).
 - **Ephemeral In-Memory Session**: Closing the overlay completely removes all listeners, cancels pending animation frames, and discards session strokes and history from memory.
@@ -61,6 +64,8 @@ PageInk/
 ├── entrypoints/
 │   ├── background.ts            # MV3 service worker (action click & on-demand script injection)
 │   └── content.tsx              # Content script mounting isolated Shadow DOM UI
+├── public/
+│   └── icons/                   # Extension PNG icons (16x16, 32x32, 48x48, 128x128)
 ├── src/
 │   ├── components/
 │   │   ├── OverlayApp.tsx       # Root overlay component bridging CanvasEngine & Toolbar
@@ -69,10 +74,11 @@ PageInk/
 │   │   └── brand.ts             # Centralized PageInk branding & message constants
 │   ├── engine/
 │   │   ├── CanvasEngine.ts        # Imperative 2D canvas manager, DPR scaling & rAF loop
-│   │   ├── EraserEngine.ts        # AABB culling, segment densification & partial stroke splitting
+│   │   ├── EraserEngine.ts        # AABB culling & whole-stroke capsule hit testing
 │   │   ├── HistoryManager.ts      # Structural-sharing Undo/Redo & Clear All state manager
 │   │   ├── PointerInputHandler.ts # Pointer capture, pressure smoothing & coalesced events
-│   │   └── StrokeRenderer.ts      # perfect-freehand outline to Path2D conversion & culling
+│   │   ├── StrokeRenderer.ts      # perfect-freehand outline to Path2D conversion & culling
+│   │   └── WheelScrollHandler.ts  # Underlying scroll container detection & wheel forwarding
 │   ├── styles/
 │   │   └── overlay.css          # Scoped styles injected into the Shadow DOM
 │   └── types/

@@ -19,12 +19,17 @@ The following test suites were executed in Node (`node --experimental-strip-type
    - Zero-width stroke protection (`MIN_STYLUS_PRESSURE = 0.12` floor).
    - Exponential moving average (EMA) pressure smoothing (`alpha = 0.45`) and `0.8` gamma curve.
    - Uniform Highlighter thickness (`thinning: 0`) regardless of stylus pressure fluctuations.
-3. **Partial Segment Eraser & Undo/Redo History (`EraserEngine.ts`, `HistoryManager.ts`)**:
-   - Splitting a pen stroke across its middle into 2 independent segments while preserving per-point stylus pressure, color, and size.
-   - Segment densification (`MAX_SEGMENT_LENGTH = 5px`) so 2-point fast straight highlighter/pen lines split cleanly in their interior.
-   - Structural-sharing Undo/Redo across partial erasing, full stroke creation, and `Clear All`.
-   - Grouping continuous multi-step eraser drags into a single logical Undo entry on `pointerup`.
-4. **Toolbar Colors & Independent Thickness (`tools.ts`)**:
+3. **Whole-Stroke Eraser & Undo/Redo History (`EraserEngine.ts`, `HistoryManager.ts`)**:
+   - Erasing the beginning, middle, or end of a Pen or Highlighter stroke removes that entire `Stroke` object.
+   - Separate overlapping strokes remain untouched unless the eraser path directly intersects their geometry.
+   - Structural-sharing Undo/Redo restores entire deleted strokes with their exact original object references and cached `Path2D` instances.
+   - Continuous multi-step eraser drags are grouped into a single logical Undo entry on `pointerup`.
+4. **Draw-Mode Wheel & Trackpad Scrolling (`WheelScrollHandler.ts`)**:
+   - Underlying scroll container hit-testing (`document.elementFromPoint` with temporary `pointer-events: none` on the canvas) scrolls nested SPA containers (e.g., ChatGPT conversations) vertically and horizontally while in Draw mode.
+   - Preserves `Ctrl + wheel` for native browser zoom and avoids double-scrolling when Hold-Space Browse Mode is active.
+5. **Icon Assets & Manifest Verification (`public/icons/`, `wxt.config.ts`)**:
+   - Verified `icon-16.png`, `icon-32.png`, `icon-48.png`, and `icon-128.png` exist in both `public/icons/` and `.output/chrome-mv3/icons/` and are referenced in `manifest.icons` and `manifest.action.default_icon`.
+6. **Toolbar Colors & Independent Thickness (`tools.ts`)**:
    - All 8 Pen colors (Black, White, Red, Orange, Yellow, Green, Blue, Purple) and 4 Highlighter colors (Yellow, Green, Pink, Blue).
    - Independent Pen (`1–12px`) and Highlighter (`8–32px`) thickness bounds and existing stroke preservation.
 
@@ -81,8 +86,8 @@ The following test suites were executed in Node (`node --experimental-strip-type
    - [ ] Draw across the canvas -> verify PageInk falls back cleanly to consistent stroke thickness without rejecting events or crashing.
 3. **Highlighter with Stylus**:
    - [ ] Select **Highlighter** and draw with varying stylus pressure -> verify stroke width remains uniform (`thinning: 0`) and overlapping strokes of the same color do not darken excessively.
-4. **Eraser with Stylus**:
-   - [ ] Select **Eraser** and rub across the middle of a drawn stroke with the stylus -> verify the stroke splits cleanly into two segments and `Undo` (`Ctrl+Z`) restores the original stroke in one step.
+4. **Eraser with Stylus / Mouse**:
+   - [ ] Select **Eraser** and touch the beginning, middle, or end of a drawn stroke -> verify the entire stroke is removed while separate overlapping strokes remain untouched, and `Undo` (`Ctrl+Z`) restores the complete stroke in one step.
 
 ---
 
@@ -91,3 +96,4 @@ The following test suites were executed in Node (`node --experimental-strip-type
 - **Document-Coordinate Anchoring (Not DOM-Element Anchoring)**: Annotations are anchored to document/scroll coordinates (`scrollX`, `scrollY`), not bound to individual DOM nodes. If a webpage dynamically expands or collapses an accordion above an annotation (causing a layout shift), the annotation remains at its document coordinate rather than reflowing with the shifted DOM element.
 - **Ephemeral By Design**: Annotations exist strictly in memory for the active overlay session. Closing the overlay (`Escape` or `X`) or reloading the tab permanently discards the session.
 - **Browser-Restricted Pages**: Chromium security policies prohibit extensions from injecting scripts into `chrome://`, `edge://`, `about:`, and the Chrome Web Store.
+

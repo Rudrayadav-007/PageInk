@@ -9,6 +9,7 @@ import {
   isBoundingBoxVisible,
   renderStroke,
 } from './StrokeRenderer';
+import { handleCanvasWheelScroll } from './WheelScrollHandler';
 
 export type HistoryChangeListener = (snapshot: HistoryStateSnapshot) => void;
 
@@ -19,6 +20,8 @@ export type HistoryChangeListener = (snapshot: HistoryStateSnapshot) => void;
  *
  * Layering & Coordinate Strategy:
  * - Stores stroke coordinates in document space (`clientX + scrollX`, `clientY + scrollY`).
+ * - Supports natural mouse-wheel and trackpad scrolling directly while in Draw mode
+ *   by hit-testing the underlying webpage scroll container via `document.elementFromPoint()`.
  * - Tracks both window scrolling (`window.scrollX`/`scrollY`) and inner scrollable containers
  *   (used by SPAs such as ChatGPT) via a capture-phase scroll listener.
  * - Monitors `window.resize`, `visualViewport.resize`, and `matchMedia('(resolution: ...)')`
@@ -50,6 +53,7 @@ export class CanvasEngine {
   private didEraseDuringGesture = false;
   private lastErasePoint: StrokePoint | null = null;
   private eraserCursorDocPos: StrokePoint | null = null;
+  private lastPointerViewportPos: { x: number; y: number } | null = null;
 
   private rafId: number | null = null;
   private needsRender = false;
@@ -97,6 +101,11 @@ export class CanvasEngine {
       onStrokeEnd: this.handleStrokeEnd,
       onStrokeCancel: this.handleStrokeCancel,
       onHoverMove: this.handleHoverMove,
+    });
+
+    // Non-passive wheel listener enables natural mouse-wheel and trackpad scrolling in Draw mode
+    this.canvas.addEventListener('wheel', this.handleCanvasWheel, {
+      passive: false,
     });
 
     window.addEventListener('resize', this.handleWindowResize, { passive: true });
@@ -185,6 +194,7 @@ export class CanvasEngine {
     }
     this.teardownDprObserver();
     this.pointerHandler.destroy();
+    this.canvas.removeEventListener('wheel', this.handleCanvasWheel);
     window.removeEventListener('resize', this.handleWindowResize);
     window.removeEventListener('scroll', this.handleDocumentScroll, { capture: true });
     window.visualViewport?.removeEventListener('resize', this.handleWindowResize);
@@ -215,6 +225,46 @@ export class CanvasEngine {
     }
 
     return { scrollX, scrollY };
+  };
+
+  private handleCanvasWheel = (e: WheelEvent): void => {
+    this.lastPointerViewportPos = { x: e.clientX, y: e.clientY };
+
+    const scrolledEl = handleCanvasWheelScroll(
+      e,
+      this.canvas,
+      this.isPassthrough
+    );
+
+    if (
+      scrolledEl &&
+      scrolledEl !== document.documentElement &&
+      scrolledEl !== document.body
+    ) {
+      const rect = scrolledEl.getBoundingClientRect();
+      if (
+        rect.width >= window.innerWidth * 0.5 &&
+        rect.height >= window.innerHeight * 0.5
+      ) {
+        this.activeScrollElement = scrolledEl;
+      }
+    }
+
+    if (scrolledEl) {
+      if (
+        this.settings.activeTool === 'eraser' &&
+        this.lastPointerViewportPos &&
+        this.eraserCursorDocPos
+      ) {
+        const { scrollX, scrollY } = this.getScrollOffsets();
+        this.eraserCursorDocPos = {
+          x: this.lastPointerViewportPos.x + scrollX,
+          y: this.lastPointerViewportPos.y + scrollY,
+          pressure: 0.5,
+        };
+      }
+      this.scheduleRender();
+    }
   };
 
   private setupDprObserver(): void {
@@ -277,6 +327,16 @@ export class CanvasEngine {
   };
 
   private handleHoverMove = (point: StrokePoint | null): void => {
+    if (point) {
+      const { scrollX, scrollY } = this.getScrollOffsets();
+      this.lastPointerViewportPos = {
+        x: point.x - scrollX,
+        y: point.y - scrollY,
+      };
+    } else {
+      this.lastPointerViewportPos = null;
+    }
+
     if (this.settings.activeTool !== 'eraser' || this.isPassthrough) {
       if (this.eraserCursorDocPos !== null) {
         this.eraserCursorDocPos = null;
@@ -467,8 +527,7 @@ export class CanvasEngine {
       p0.y,
       p1.x,
       p1.y,
-      eraserRadius,
-      this.nextStrokeId
+      eraserRadius
     );
 
     if (didModify) {

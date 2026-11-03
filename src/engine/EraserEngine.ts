@@ -1,12 +1,4 @@
-import type { BoundingBox, Stroke, StrokePoint } from '../types/stroke';
-import { buildStrokePath2D, computeStrokeBoundingBox } from './StrokeRenderer.ts';
-
-/**
- * Maximum spacing (in document pixels) between adjacent points along a stroke
- * before `densifyStrokePoints` subdivides the segment so the eraser can split
- * even long fast straight lines smoothly.
- */
-const MAX_SEGMENT_LENGTH = 5;
+import type { BoundingBox, Stroke } from '../types/stroke';
 
 /**
  * Computes the minimum squared distance from point `(px, py)` to the line segment
@@ -32,43 +24,59 @@ export function distToSegmentSquared(
 }
 
 /**
- * Subdivides any segment in `points` longer than `maxSegmentLen` via linear
- * interpolation of `x`, `y`, and `pressure`. This guarantees that fast strokes
- * with widely spaced sample points can still be cleanly split in the middle
- * by the eraser.
+ * Returns `true` if the closed line segments `(p1x, p1y)->(p2x, p2y)` and
+ * `(q1x, q1y)->(q2x, q2y)` intersect.
  */
-export function densifyStrokePoints(
-  points: StrokePoint[],
-  maxSegmentLen = MAX_SEGMENT_LENGTH
-): StrokePoint[] {
-  if (points.length <= 1) {
-    return points;
+export function segmentsIntersect(
+  p1x: number,
+  p1y: number,
+  p2x: number,
+  p2y: number,
+  q1x: number,
+  q1y: number,
+  q2x: number,
+  q2y: number
+): boolean {
+  const ccw = (
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number,
+    cx: number,
+    cy: number
+  ) => (cy - ay) * (bx - ax) > (by - ay) * (cx - ax);
+
+  return (
+    ccw(p1x, p1y, q1x, q1y, q2x, q2y) !== ccw(p2x, p2y, q1x, q1y, q2x, q2y) &&
+    ccw(p1x, p1y, p2x, p2y, q1x, q1y) !== ccw(p1x, p1y, p2x, p2y, q2x, q2y)
+  );
+}
+
+/**
+ * Computes the minimum squared distance between two 2D line segments:
+ * segment A `(a0x, a0y) -> (a1x, a1y)` and segment B `(b0x, b0y) -> (b1x, b1y)`.
+ * Supports fast eraser sweeps across long or sparse stroke segments.
+ */
+export function segmentToSegmentDistSquared(
+  a0x: number,
+  a0y: number,
+  a1x: number,
+  a1y: number,
+  b0x: number,
+  b0y: number,
+  b1x: number,
+  b1y: number
+): number {
+  if (segmentsIntersect(a0x, a0y, a1x, a1y, b0x, b0y, b1x, b1y)) {
+    return 0;
   }
 
-  const result: StrokePoint[] = [points[0]];
-
-  for (let i = 0; i < points.length - 1; i++) {
-    const a = points[i];
-    const b = points[i + 1];
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const dist = Math.hypot(dx, dy);
-
-    if (dist > maxSegmentLen) {
-      const steps = Math.ceil(dist / maxSegmentLen);
-      for (let s = 1; s < steps; s++) {
-        const t = s / steps;
-        result.push({
-          x: a.x + dx * t,
-          y: a.y + dy * t,
-          pressure: Number((a.pressure + (b.pressure - a.pressure) * t).toFixed(4)),
-        });
-      }
-    }
-    result.push(b);
-  }
-
-  return result;
+  return Math.min(
+    distToSegmentSquared(a0x, a0y, b0x, b0y, b1x, b1y),
+    distToSegmentSquared(a1x, a1y, b0x, b0y, b1x, b1y),
+    distToSegmentSquared(b0x, b0y, a0x, a0y, a1x, a1y),
+    distToSegmentSquared(b1x, b1y, a0x, a0y, a1x, a1y)
+  );
 }
 
 /**
@@ -96,20 +104,68 @@ export function doesEraserSweepIntersectBbox(
   );
 }
 
+/**
+ * Tests whether a single `Stroke` is touched anywhere along its polyline by the
+ * swept eraser segment `(x0, y0) -> (x1, y1)` with radius `eraserRadius`.
+ */
+export function doesEraserHitStroke(
+  stroke: Stroke,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  eraserRadius: number
+): boolean {
+  // Stage 1: Fast bounding-box rejection
+  if (
+    !doesEraserSweepIntersectBbox(stroke.bbox, x0, y0, x1, y1, eraserRadius)
+  ) {
+    return false;
+  }
+
+  const hitRadius = eraserRadius + stroke.size * 0.5;
+  const hitRadiusSq = hitRadius * hitRadius;
+  const pts = stroke.points;
+
+  if (pts.length === 0) {
+    return false;
+  }
+
+  if (pts.length === 1) {
+    return (
+      distToSegmentSquared(pts[0].x, pts[0].y, x0, y0, x1, y1) <= hitRadiusSq
+    );
+  }
+
+  // Stage 2: Accurate segment-to-segment distance check along the stroke polyline
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    if (
+      segmentToSegmentDistSquared(a.x, a.y, b.x, b.y, x0, y0, x1, y1) <=
+      hitRadiusSq
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export interface EraseSweepResult {
   strokes: Stroke[];
   didModify: boolean;
 }
 
 /**
- * Applies a single swept eraser segment `(x0, y0) -> (x1, y1)` with radius `eraserRadius`
- * across the given `strokes` array.
+ * Whole-stroke eraser: removes any complete `Stroke` (Pen or Highlighter) whose
+ * geometry is intersected by the swept eraser segment `(x0, y0) -> (x1, y1)`.
  *
- * - Uses fast AABB culling (`doesEraserSweepIntersectBbox`) before running per-point
- *   geometric capsule hit testing.
- * - Splits intersected strokes into 0, 1, or multiple contiguous surviving sub-strokes,
- *   preserving each remaining segment's original tool, color, width, relative z-order,
- *   and per-point stylus pressure data.
+ * - Uses fast AABB culling (`doesEraserSweepIntersectBbox`) before running
+ *   segment-to-segment capsule hit testing.
+ * - Independent strokes that merely overlap visually are untouched unless the
+ *   eraser path directly intersects their geometry.
+ * - Preserves untouched original `Stroke` object references for Undo/Redo history.
  */
 export function eraseStrokesAlongSegment(
   strokes: readonly Stroke[],
@@ -117,89 +173,22 @@ export function eraseStrokesAlongSegment(
   y0: number,
   x1: number,
   y1: number,
-  eraserRadius: number,
-  nextId: () => string
+  eraserRadius: number
 ): EraseSweepResult {
   let didModify = false;
-  const nextStrokes: Stroke[] = [];
+  const survivingStrokes: Stroke[] = [];
 
   for (let i = 0; i < strokes.length; i++) {
     const stroke = strokes[i];
-
-    // Stage 1: Fast bounding-box rejection
-    if (
-      !doesEraserSweepIntersectBbox(
-        stroke.bbox,
-        x0,
-        y0,
-        x1,
-        y1,
-        eraserRadius
-      )
-    ) {
-      nextStrokes.push(stroke);
-      continue;
-    }
-
-    // Effective hit threshold accounts for both the eraser radius and half of the stroke's width
-    const hitRadius = eraserRadius + stroke.size * 0.45;
-    const hitRadiusSq = hitRadius * hitRadius;
-
-    // Densify long segments first so fast straight strokes can be erased in their middle
-    const densePoints = densifyStrokePoints(stroke.points);
-
-    // Stage 2: Check if any point on the densified stroke falls inside the eraser capsule
-    let anyPointErased = false;
-    const keepFlags = new Uint8Array(densePoints.length);
-
-    for (let pIdx = 0; pIdx < densePoints.length; pIdx++) {
-      const pt = densePoints[pIdx];
-      const distSq = distToSegmentSquared(pt.x, pt.y, x0, y0, x1, y1);
-      if (distSq <= hitRadiusSq) {
-        anyPointErased = true;
-        keepFlags[pIdx] = 0;
-      } else {
-        keepFlags[pIdx] = 1;
-      }
-    }
-
-    if (!anyPointErased) {
-      nextStrokes.push(stroke);
-      continue;
-    }
-
-    didModify = true;
-
-    // Stage 3: Partition surviving contiguous runs of points into new Stroke fragments
-    let runStart = -1;
-    for (let pIdx = 0; pIdx <= densePoints.length; pIdx++) {
-      const keep = pIdx < densePoints.length ? keepFlags[pIdx] === 1 : false;
-
-      if (keep && runStart === -1) {
-        runStart = pIdx;
-      } else if (!keep && runStart !== -1) {
-        const segmentPoints = densePoints.slice(runStart, pIdx);
-        runStart = -1;
-
-        if (segmentPoints.length >= 1) {
-          const fragment: Stroke = {
-            id: nextId(),
-            tool: stroke.tool,
-            color: stroke.color,
-            size: stroke.size,
-            points: segmentPoints,
-            simulatePressure: stroke.simulatePressure,
-            bbox: computeStrokeBoundingBox(segmentPoints, stroke.size),
-          };
-          fragment.cachedPath = buildStrokePath2D(fragment, true);
-          nextStrokes.push(fragment);
-        }
-      }
+    if (doesEraserHitStroke(stroke, x0, y0, x1, y1, eraserRadius)) {
+      didModify = true;
+    } else {
+      survivingStrokes.push(stroke);
     }
   }
 
   return {
-    strokes: didModify ? nextStrokes : (strokes as Stroke[]),
+    strokes: didModify ? survivingStrokes : (strokes as Stroke[]),
     didModify,
   };
 }

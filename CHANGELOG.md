@@ -2,6 +2,23 @@
 
 All notable changes to the **PageInk** Chrome extension are documented in this file.
 
+## [0.7.0] - Final Polish: Extension Icons, Draw-Mode Wheel Scrolling & Whole-Stroke Eraser
+
+### Added
+- **PageInk Chrome Extension Icons** (`public/icons/`, `wxt.config.ts`):
+  - Added dedicated `16x16`, `32x32`, `48x48`, and `128x128` PNG icon assets (`icon-16.png`, `icon-32.png`, `icon-48.png`, `icon-128.png`) featuring the dark charcoal rounded-square background, white page sheet, and electric-blue ink pen stroke.
+  - Configured `manifest.icons` and `manifest.action.default_icon` in `wxt.config.ts`.
+- **Natural Mouse-Wheel & Trackpad Scrolling in Draw Mode** (`src/engine/WheelScrollHandler.ts`, `src/engine/CanvasEngine.ts`):
+  - Implemented non-passive wheel handling on the drawing canvas that temporarily sets `pointer-events: none` during `document.elementFromPoint(clientX, clientY)` to locate the underlying scrollable webpage element (supporting nested SPA scroll containers such as ChatGPT as well as standard document scrolling).
+  - Supports vertical and horizontal trackpad scrolling, line/page wheel delta normalization, and preserves `Ctrl + wheel` for native browser zoom.
+
+### Changed
+- **Whole-Stroke Eraser** (`src/engine/EraserEngine.ts`, `src/engine/CanvasEngine.ts`):
+  - Replaced partial-stroke splitting with whole-stroke erasing (`doesEraserHitStroke`, `eraseStrokesAlongSegment`): touching any part (beginning, middle, or end) of a Pen or Highlighter stroke removes that entire stroke object while leaving separate overlapping strokes untouched.
+  - Removed unnecessary segment-densification and fragment-splitting logic, preserving exact original `Stroke` object references in Undo/Redo history.
+
+---
+
 ## [0.6.0] - Phase 6: Final Engineering, Browser Integration and Release Readiness
 
 ### Added
