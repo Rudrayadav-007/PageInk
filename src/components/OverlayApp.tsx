@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { DEFAULT_TOOL_SETTINGS, ToolSettings, ToolType } from '../types/tools';
+import {
+  DEFAULT_TOOL_SETTINGS,
+  HIGHLIGHTER_SIZE_MAX,
+  HIGHLIGHTER_SIZE_MIN,
+  PEN_SIZE_MAX,
+  PEN_SIZE_MIN,
+  ToolSettings,
+  ToolType,
+} from '../types/tools';
 import { CanvasEngine } from '../engine/CanvasEngine';
 import { HistoryStateSnapshot } from '../engine/HistoryManager';
 import { Toolbar } from './Toolbar';
@@ -90,9 +98,35 @@ export const OverlayApp: React.FC<OverlayAppProps> = ({ onClose }) => {
     };
   }, [onClose, handleUndo, handleRedo]);
 
-  const handleSelectTool = (activeTool: ToolType) => {
+  const handleSelectTool = useCallback((activeTool: ToolType) => {
     setSettings((prev) => ({ ...prev, activeTool }));
-  };
+  }, []);
+
+  const handleSelectColor = useCallback((newColor: string) => {
+    setSettings((prev) => {
+      if (prev.activeTool === 'highlighter') {
+        return { ...prev, highlighterColor: newColor };
+      }
+      return { ...prev, color: newColor };
+    });
+  }, []);
+
+  const handleChangeSize = useCallback((newSize: number) => {
+    setSettings((prev) => {
+      if (prev.activeTool === 'highlighter') {
+        const clamped = Math.max(
+          HIGHLIGHTER_SIZE_MIN,
+          Math.min(HIGHLIGHTER_SIZE_MAX, Math.round(newSize))
+        );
+        return { ...prev, highlighterSize: clamped };
+      }
+      const clamped = Math.max(
+        PEN_SIZE_MIN,
+        Math.min(PEN_SIZE_MAX, Math.round(newSize))
+      );
+      return { ...prev, penSize: clamped };
+    });
+  }, []);
 
   return (
     <div className="pi-overlay-root">
@@ -106,6 +140,8 @@ export const OverlayApp: React.FC<OverlayAppProps> = ({ onClose }) => {
         settings={settings}
         historyState={historyState}
         onSelectTool={handleSelectTool}
+        onSelectColor={handleSelectColor}
+        onChangeSize={handleChangeSize}
         onUndo={handleUndo}
         onRedo={handleRedo}
         onClearAll={handleClearAll}

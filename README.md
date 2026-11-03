@@ -6,11 +6,14 @@ Designed for studying technical documentation, ChatGPT responses, code blocks, a
 
 ---
 
-## Current Implemented Features (Phase 4)
+## Current Implemented Features (Phase 5)
 
 - **On-Demand Activation**: Click the PageInk toolbar icon to inject and toggle the drawing overlay on the active tab (`activeTab` + `scripting` permissions only).
 - **Shadow DOM Isolation**: Renders the floating toolbar and viewport canvas inside an isolated Shadow DOM root (`<pageink-overlay>`) so host webpage styles and DOM remain untouched.
-- **Compact Draggable Toolbar**: Excalidraw-inspired dark charcoal floating toolbar (`344px` wide) with Lucide icons, active tool state (`Pen`, `Highlighter`, `Eraser`), live `Undo` / `Redo` / `Clear All` action buttons, drag handle, and `Escape` / Close button dismissal.
+- **Compact Draggable Toolbar & Customization Controls**:
+  - Excalidraw-inspired dark charcoal floating toolbar (`348px` wide) with Lucide icons, active tool state (`Pen`, `Highlighter`, `Eraser`), live `Undo` / `Redo` / `Clear All` action buttons, drag handle, and `Escape` / Close button dismissal.
+  - Dedicated **Pen Color Palette** (8 colors: Black, White, Red, Orange, Yellow, Green, Blue, Purple) and **Highlighter Color Palette** (4 colors: Yellow, Green, Pink, Blue).
+  - Independent **Thickness Controls** for Pen (`1–12px`) and Highlighter (`8–32px`) with live visual dot size/color preview and compact range slider.
 - **Pressure-Sensitive Stylus & Smooth Freehand Pen Engine**:
   - Powered by `perfect-freehand` and quadratic Bézier `Path2D` splines with rounded caps.
   - Captures real hardware stylus pressure (`PointerEvent.pressure`) with a gentle gamma response curve, exponential moving average (EMA) pressure smoothing, and a safe minimum pressure floor (`0.12`) to prevent zero-width strokes.
@@ -20,8 +23,8 @@ Designed for studying technical documentation, ChatGPT responses, code blocks, a
   - High-DPI (`window.devicePixelRatio`) viewport canvas that preserves strokes across window resizes.
   - Document-coordinate stroke storage (`clientX + scrollX`, `clientY + scrollY`) with bounding-box viewport culling and on-demand `requestAnimationFrame` rendering.
 - **Translucent Highlighter Tool**:
-  - Smooth, uniform-width (`thinning: 0`) freehand marker strokes with rounded caps and semi-transparent yellow (`#facc15` at `0.36` opacity) default.
-  - Offscreen layer compositing strategy: all visible highlighter strokes render at `1.0` alpha onto a dedicated offscreen viewport buffer and composite once at `0.36` opacity underneath Pen strokes—preventing overlapping highlights from darkening excessively or washing out pen ink.
+  - Smooth, uniform-width (`thinning: 0`) freehand marker strokes with rounded caps and configurable marker colors (Yellow, Green, Pink, Blue at `0.36` opacity).
+  - Per-color offscreen layer compositing strategy: visible highlighter strokes of each color render at `1.0` alpha onto a dedicated offscreen viewport buffer and composite at `0.36` opacity underneath Pen strokes—preventing overlapping highlights of the same color from darkening excessively while keeping distinct highlighter colors crisp and underneath pen ink.
 - **Partial Segment Eraser**:
   - Swept capsule hit-testing with fast axis-aligned bounding-box (AABB) rejection (`EraserEngine.ts`).
   - Subdivides long stroke segments and splits intersected Pen or Highlighter strokes into surviving contiguous segments rather than deleting whole strokes, preserving original color, thickness, tool type, and per-point stylus pressure.
@@ -109,6 +112,5 @@ PageInk/
 
 ## Current Limitations & Upcoming Roadmap
 
-- **Phase 5 (Next)**: Interactive color palette and adjustable Pen / Highlighter thickness controls in the floating toolbar.
-- **Phase 6**: Hold `Space` for temporary webpage passthrough/scrolling, session cleanup hardening, and scroll performance optimizations.
+- **Phase 6 (Next)**: Hold `Space` for temporary webpage passthrough/scrolling, session cleanup hardening, and scroll performance optimizations.
 - **Phase 7**: Cross-site verification on dynamic web apps (ChatGPT, YouTube, technical documentation) and final production polish.

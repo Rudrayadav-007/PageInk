@@ -42,11 +42,15 @@ flowchart TD
 - **`OverlayApp`**:
   - Owns the top-level `ToolSettings` state (`activeTool`, `color`, `highlighterColor`, `penSize`, `highlighterSize`, `eraserSize`) and lightweight `HistoryStateSnapshot` (`canUndo`, `canRedo`, `hasStrokes`).
   - Instantiates `CanvasEngine` once on mount via `useRef`, passing a `handleHistoryChange` callback that only updates React state when `canUndo`, `canRedo`, or `hasStrokes` actually flips.
+  - Updates tool settings (`handleSelectTool`, `handleSelectColor`, `handleChangeSize`) in memory only and forwards them to `CanvasEngine` via `engine.updateSettings(settings)` without triggering redundant canvas redraws when only color or thickness changes.
   - Listens for `Escape` (close) and `Ctrl+Z` / `Cmd+Z` / `Ctrl+Y` / `Ctrl+Shift+Z` (Undo/Redo) in the capture phase.
 - **`Toolbar`**:
-  - Renders the `344px` floating dark-charcoal toolbar with tool buttons (`Pen`, `Highlighter`, `Eraser`, `Undo`, `Redo`, `Clear All`, `Close`).
+  - Renders the `348px` floating dark-charcoal toolbar with primary tool buttons (`Pen`, `Highlighter`, `Eraser`, `Undo`, `Redo`, `Clear All`, `Close`).
+  - Renders a contextual customization sub-row (`pi-toolbar-subrow`) when `Pen` or `Highlighter` is selected, providing:
+    - **8 Pen Colors** (Black, White, Red, Orange, Yellow, Green, Blue, Purple) and **4 Highlighter Colors** (Yellow, Green, Pink, Blue).
+    - **Independent Thickness Controls** (`1–12px` for Pen, `8–32px` for Highlighter) with a live visual dot preview (`pi-thickness-dot`) and range slider.
   - Implements self-contained pointer-captured dragging (`GripVertical` handle) clamped to the browser viewport bounds.
-  - Stops pointer event propagation (`onPointerDown={(e) => e.stopPropagation()}`) so clicking or dragging the toolbar never starts a stroke on the underlying canvas.
+  - Stops pointer event propagation (`onPointerDown={(e) => e.stopPropagation()}`) so clicking swatches, adjusting the thickness slider, or dragging the toolbar never starts a stroke on the underlying canvas.
 
 ---
 
@@ -54,8 +58,8 @@ flowchart TD
 
 ### `CanvasEngine` (`src/engine/CanvasEngine.ts`)
 - **Viewport-Sized Backing Store**: Sizes both the visible `<canvas>` and the offscreen `highlighterCanvas` to the visible viewport (`window.innerWidth * dpr` by `window.innerHeight * dpr`).
-- **Two-Pass Layer Compositing**:
-  1. **Highlighter Pass**: Renders all visible highlighter strokes at `1.0` alpha onto `highlighterCanvas`, then composites that buffer once onto the main canvas with `globalAlpha = 0.36` (`HIGHLIGHTER_OPACITY`). This prevents overlapping highlights from darkening each other and keeps highlights underneath pen ink.
+- **Multi-Pass Layer Compositing**:
+  1. **Highlighter Pass (Grouped by Color)**: Renders visible highlighter strokes of each active color at `1.0` alpha onto `highlighterCanvas`, then composites each color pass once onto the main canvas with `globalAlpha = 0.36` (`HIGHLIGHTER_OPACITY`). This prevents overlapping highlights of the same color from darkening each other while allowing distinct highlighter colors (Yellow, Green, Pink, Blue) to remain visually distinct underneath pen ink.
   2. **Pen Pass**: Renders all visible pen strokes on top at `1.0` alpha.
   3. **Eraser Cursor Pass**: When `activeTool === 'eraser'`, renders a high-contrast dual-ring eraser circle at the current pointer position.
 - **Document-Space Coordinates**: All stroke points are stored in document coordinates (`clientX + window.scrollX`, `clientY + window.scrollY`).

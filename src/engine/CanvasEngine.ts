@@ -418,41 +418,71 @@ export class CanvasEngine {
       hasVisibleHighlighters = true;
     }
 
-    // Pass 1: Render all visible highlighter strokes onto the offscreen highlighter buffer
-    // at 100% opacity, then composite the buffer once at HIGHLIGHTER_OPACITY (0.36).
+    // Pass 1: Render visible highlighter strokes grouped by color onto the offscreen
+    // highlighter buffer at 100% opacity, then composite each color layer at HIGHLIGHTER_OPACITY (0.36).
+    // Grouping by color ensures overlapping strokes of the same highlighter color never darken
+    // excessively, while different highlighter colors remain distinct and translucent underneath Pen strokes.
     if (hasVisibleHighlighters) {
-      hlCtx.save();
-      hlCtx.setTransform(1, 0, 0, 1, 0, 0);
-      hlCtx.clearRect(0, 0, this.highlighterCanvas.width, this.highlighterCanvas.height);
-      hlCtx.scale(dpr, dpr);
-      hlCtx.translate(-scrollX, -scrollY);
-
+      const highlighterColors: string[] = [];
       for (let i = 0; i < this.strokes.length; i++) {
-        const stroke = this.strokes[i];
+        const s = this.strokes[i];
         if (
-          stroke.tool === 'highlighter' &&
-          isBoundingBoxVisible(
-            stroke.bbox,
-            scrollX,
-            scrollY,
-            viewportWidth,
-            viewportHeight
-          )
+          s.tool === 'highlighter' &&
+          isBoundingBoxVisible(s.bbox, scrollX, scrollY, viewportWidth, viewportHeight) &&
+          !highlighterColors.includes(s.color)
         ) {
-          renderStroke(hlCtx, stroke, true);
+          highlighterColors.push(s.color);
         }
       }
-
-      if (this.activeStroke && this.activeStroke.tool === 'highlighter') {
-        renderStroke(hlCtx, this.activeStroke, false);
+      if (
+        this.activeStroke &&
+        this.activeStroke.tool === 'highlighter' &&
+        !highlighterColors.includes(this.activeStroke.color)
+      ) {
+        highlighterColors.push(this.activeStroke.color);
       }
 
-      hlCtx.restore();
+      for (let cIdx = 0; cIdx < highlighterColors.length; cIdx++) {
+        const targetColor = highlighterColors[cIdx];
 
-      ctx.save();
-      ctx.globalAlpha = HIGHLIGHTER_OPACITY;
-      ctx.drawImage(this.highlighterCanvas, 0, 0);
-      ctx.restore();
+        hlCtx.save();
+        hlCtx.setTransform(1, 0, 0, 1, 0, 0);
+        hlCtx.clearRect(0, 0, this.highlighterCanvas.width, this.highlighterCanvas.height);
+        hlCtx.scale(dpr, dpr);
+        hlCtx.translate(-scrollX, -scrollY);
+
+        for (let i = 0; i < this.strokes.length; i++) {
+          const stroke = this.strokes[i];
+          if (
+            stroke.tool === 'highlighter' &&
+            stroke.color === targetColor &&
+            isBoundingBoxVisible(
+              stroke.bbox,
+              scrollX,
+              scrollY,
+              viewportWidth,
+              viewportHeight
+            )
+          ) {
+            renderStroke(hlCtx, stroke, true);
+          }
+        }
+
+        if (
+          this.activeStroke &&
+          this.activeStroke.tool === 'highlighter' &&
+          this.activeStroke.color === targetColor
+        ) {
+          renderStroke(hlCtx, this.activeStroke, false);
+        }
+
+        hlCtx.restore();
+
+        ctx.save();
+        ctx.globalAlpha = HIGHLIGHTER_OPACITY;
+        ctx.drawImage(this.highlighterCanvas, 0, 0);
+        ctx.restore();
+      }
     }
 
     // Pass 2: Render all visible Pen strokes on top in crisp full opacity

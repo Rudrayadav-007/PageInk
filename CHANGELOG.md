@@ -2,6 +2,18 @@
 
 All notable changes to the **PageInk** Chrome extension are documented in this file.
 
+## [0.5.0] - Phase 5: Toolbar Polish and Drawing Controls
+
+### Added
+- **Color Palettes** (`src/types/tools.ts`, `src/components/Toolbar.tsx`):
+  - Added 8 Pen color swatches (Black, White, Red, Orange, Yellow, Green, Blue, Purple) and 4 Highlighter color swatches (Yellow, Green, Pink, Blue).
+  - Updated `CanvasEngine` highlighter compositing pass to group visible highlighter strokes by color on the offscreen buffer so overlapping strokes of the same color maintain uniform `0.36` opacity while different highlighter colors remain distinct.
+- **Independent Thickness Controls** (`src/components/Toolbar.tsx`, `src/components/OverlayApp.tsx`, `src/styles/overlay.css`):
+  - Added compact contextual customization sub-row for Pen (`1–12px`) and Highlighter (`8–32px`) with a live visual thickness dot preview, compact slider, and pixel readout.
+  - Ensured changing colors or thickness updates only in-memory settings for subsequent strokes without mutating existing strokes or triggering unnecessary canvas redraws.
+
+---
+
 ## [0.4.0] - Phase 4: Eraser, Undo, Redo and Clear All
 
 ### Added
