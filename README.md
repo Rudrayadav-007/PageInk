@@ -11,13 +11,14 @@ Designed for studying technical documentation, ChatGPT responses, code blocks, a
 - **On-Demand Activation**: Click the PageInk toolbar icon to inject and toggle the drawing overlay on the active tab (`activeTab` + `scripting` permissions only).
 - **Shadow DOM Isolation**: Renders the floating toolbar and viewport canvas inside an isolated Shadow DOM root (`<pageink-overlay>`) so host webpage styles and DOM remain untouched, with singleton guard protection against duplicate roots.
 - **Compact Draggable Toolbar & Customization Controls**:
-  - Excalidraw-inspired dark charcoal floating toolbar (`348px` wide) with Lucide icons, active tool state (`Pen`, `Highlighter`, `Eraser`), live `Undo` / `Redo` / `Clear All` action buttons, drag handle, and `Pause` (`-` button or `Escape`) to minimize into a floating resume icon.
+  - Excalidraw-inspired dark charcoal floating toolbar (`356px` wide) with Lucide icons, active tool state (`Pen`, `Highlighter`, `Eraser`), live `Undo` / `Redo` / `Clear All` action buttons, drag handle, separate **Minimize / Pause (`—`)** and **Close (`×`)** buttons.
   - Dedicated **Pen Color Palette** (8 colors: Black, White, Red, Orange, Yellow, Green, Blue, Purple) and **Highlighter Color Palette** (4 colors: Yellow, Green, Pink, Blue).
   - Independent **Thickness Controls** for Pen (`1–12px`, default `2px`) and Highlighter (`8–32px`, default `22px`) with live visual dot size/color preview and compact range slider.
-- **Pause & Resume Mode**:
-  - Click the **Pause (`-`)** button on the toolbar (or press `Escape`) to hide the full toolbar while keeping all existing annotations visible on the page.
-  - In Pause mode, the drawing canvas becomes completely click-through (`pointer-events: none`) so you can click links, select text, type in inputs, and scroll naturally while a compact glassmorphic PageInk icon floats near the bottom-right corner.
-  - Click the floating PageInk icon at any time to restore the full toolbar, active tool, color/thickness settings, and Undo/Redo history. Clicking the Chrome extension toolbar icon fully exits and clears the session.
+- **Pause & Resume Mode with Draggable Floating Icon**:
+  - Click **Minimize / Pause (`—`)** on the toolbar (or press `Escape`) to hide the full toolbar while keeping all existing annotations visible on the page.
+  - In Pause mode, the drawing canvas becomes completely click-through (`pointer-events: none`) so you can click links, select text, type in inputs, and scroll naturally while a compact glassmorphic PageInk icon floats on screen.
+  - **Draggable & Session-Persistent Position**: Drag the floating PageInk icon anywhere within the visible viewport; its position is clamped to the viewport bounds and remembered across Pause/Resume cycles during the current session.
+  - Click the floating PageInk icon to restore the full toolbar, active tool, color/thickness settings, and Undo/Redo history. Click **Close PageInk (`×`)** on the toolbar (or the Chrome extension icon) to completely exit and clear the session.
 - **Pressure-Sensitive Stylus & Smooth Freehand Pen Engine**:
   - Powered by `perfect-freehand` and quadratic Bézier `Path2D` splines with rounded caps.
   - Captures real hardware stylus pressure (`PointerEvent.pressure`) with a gentle gamma response curve, exponential moving average (EMA) pressure smoothing, and a safe minimum pressure floor (`0.12`) to prevent zero-width strokes.

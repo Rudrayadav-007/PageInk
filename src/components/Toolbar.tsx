@@ -7,6 +7,7 @@ import {
   Redo2,
   Trash2,
   Minus,
+  X,
   GripVertical,
 } from 'lucide-react';
 import { HistoryStateSnapshot } from '../engine/HistoryManager';
@@ -33,6 +34,7 @@ interface ToolbarProps {
   onRedo: () => void;
   onClearAll: () => void;
   onPause: () => void;
+  onClose: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -46,6 +48,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onRedo,
   onClearAll,
   onPause,
+  onClose,
 }) => {
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -227,15 +230,26 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
         <div className="pi-divider" />
 
-        <button
-          type="button"
-          className="pi-btn"
-          onClick={onPause}
-          title="Pause drawing & minimize toolbar (Esc)"
-          aria-label="Pause PageInk"
-        >
-          <Minus size={16} />
-        </button>
+        <div className="pi-window-controls">
+          <button
+            type="button"
+            className="pi-btn pi-minimize-btn"
+            onClick={onPause}
+            title="Minimize / Pause"
+            aria-label="Minimize / Pause"
+          >
+            <Minus size={16} />
+          </button>
+          <button
+            type="button"
+            className="pi-btn pi-close-btn"
+            onClick={onClose}
+            title="Close PageInk"
+            aria-label="Close PageInk"
+          >
+            <X size={16} />
+          </button>
+        </div>
       </div>
 
       {showCustomizationRow && (

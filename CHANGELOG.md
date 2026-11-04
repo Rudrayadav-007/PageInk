@@ -2,6 +2,18 @@
 
 All notable changes to the **PageInk** Chrome extension are documented in this file.
 
+## [0.8.1] - Draggable Floating Resume Icon & Separate Close Control
+
+### Added
+- **Separate Minimize (`—`) and Close (`×`) Controls** (`src/components/Toolbar.tsx`, `src/styles/overlay.css`):
+  - Restored a dedicated **Close PageInk (`×`)** button alongside the **Minimize / Pause (`—`)** button at the right end of the toolbar with distinct hover states (`pi-minimize-btn` and `pi-close-btn`).
+  - Clicking **Minimize / Pause (`—`)** pauses drawing and shows the floating resume icon; clicking **Close PageInk (`×`)** completely exits the session and removes the overlay.
+- **Draggable Floating Resume Icon** (`src/components/OverlayApp.tsx`, `src/styles/overlay.css`):
+  - Implemented Pointer Events dragging on the floating PageInk icon (`pi-resume-fab`) with pointer capture, viewport clamping (`clampFabPosition`), and a `5px` movement threshold (`exceedsFabDragThreshold`) so dragging repositions the icon without accidentally triggering resume, while a short click resumes drawing immediately.
+  - Preserves the floating icon's custom position in memory across repeated Pause/Resume cycles and clamps it on browser window resize.
+
+---
+
 ## [0.8.0] - Pause / Resume Mode, 2px Default Pen & Installation Guide
 
 ### Added

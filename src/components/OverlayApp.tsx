@@ -13,7 +13,48 @@ import { HistoryStateSnapshot } from '../engine/HistoryManager';
 import { Toolbar } from './Toolbar';
 
 interface OverlayAppProps {
-  onClose?: () => void;
+  onClose: () => void;
+}
+
+export const FAB_SIZE = 44;
+export const FAB_VIEWPORT_MARGIN = 8;
+/** Minimum pointer movement (in CSS pixels) required to treat a floating-icon interaction as a drag rather than a click */
+export const FAB_DRAG_THRESHOLD_PX = 5;
+
+/**
+ * Clamps floating resume icon coordinates so the `44x44` button stays completely
+ * inside the visible browser viewport with an `8px` margin from any screen edge.
+ */
+export function clampFabPosition(
+  x: number,
+  y: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  fabSize = FAB_SIZE,
+  margin = FAB_VIEWPORT_MARGIN
+): { x: number; y: number } {
+  const maxX = Math.max(margin, viewportWidth - fabSize - margin);
+  const maxY = Math.max(margin, viewportHeight - fabSize - margin);
+  return {
+    x: Math.max(margin, Math.min(maxX, Math.round(x))),
+    y: Math.max(margin, Math.min(maxY, Math.round(y))),
+  };
+}
+
+/**
+ * Returns `true` if the pointer moved far enough from `(startX, startY)` to `(currentX, currentY)`
+ * to be classified as a drag rather than a click.
+ */
+export function exceedsFabDragThreshold(
+  startX: number,
+  startY: number,
+  currentX: number,
+  currentY: number,
+  thresholdPx = FAB_DRAG_THRESHOLD_PX
+): boolean {
+  const dx = currentX - startX;
+  const dy = currentY - startY;
+  return dx * dx + dy * dy >= thresholdPx * thresholdPx;
 }
 
 /**
@@ -87,10 +128,12 @@ const PageInkBadgeIcon: React.FC = () => (
   </svg>
 );
 
-export const OverlayApp: React.FC<OverlayAppProps> = () => {
+export const OverlayApp: React.FC<OverlayAppProps> = ({ onClose }) => {
   const [settings, setSettings] = useState<ToolSettings>(DEFAULT_TOOL_SETTINGS);
   const [isPaused, setIsPaused] = useState(false);
   const [isSpaceHeld, setIsSpaceHeld] = useState(false);
+  const [fabPosition, setFabPosition] = useState<{ x: number; y: number } | null>(null);
+  const [isDraggingFab, setIsDraggingFab] = useState(false);
   const [historyState, setHistoryState] = useState<HistoryStateSnapshot>({
     canUndo: false,
     canRedo: false,
@@ -99,6 +142,7 @@ export const OverlayApp: React.FC<OverlayAppProps> = () => {
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<CanvasEngine | null>(null);
+  const fabRef = useRef<HTMLButtonElement>(null);
 
   // Canvas is click-through whenever Pause mode is active OR Space is held
   const isCanvasPassthrough = isPaused || isSpaceHeld;
@@ -140,6 +184,25 @@ export const OverlayApp: React.FC<OverlayAppProps> = () => {
     engineRef.current?.setPassthrough(isCanvasPassthrough);
   }, [isCanvasPassthrough]);
 
+  // Keep custom floating icon position clamped within viewport bounds on window resize
+  useEffect(() => {
+    const handleResize = () => {
+      setFabPosition((prev) => {
+        if (!prev) return prev;
+        const clamped = clampFabPosition(
+          prev.x,
+          prev.y,
+          window.innerWidth,
+          window.innerHeight
+        );
+        if (clamped.x === prev.x && clamped.y === prev.y) return prev;
+        return clamped;
+      });
+    };
+    window.addEventListener('resize', handleResize, { passive: true });
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const handleUndo = useCallback(() => {
     engineRef.current?.undo();
   }, []);
@@ -160,6 +223,109 @@ export const OverlayApp: React.FC<OverlayAppProps> = () => {
   const handleResume = useCallback(() => {
     setIsPaused(false);
   }, []);
+
+  /**
+   * Handles Pointer Events on the floating resume icon (`pi-resume-fab`):
+   * - Distinguishes a short click (distance < 5px) from a reposition drag (distance >= 5px).
+   * - Uses pointer capture so dragging stays smooth even during fast cursor movements.
+   * - Clamps coordinates to the visible browser viewport and preserves the position in memory
+   *   across repeated Pause/Resume cycles.
+   */
+  const handleFabPointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0 || !fabRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Prevent accidental webpage text selection while dragging the floating icon
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount > 0) {
+      selection.removeAllRanges();
+    }
+
+    const target = e.currentTarget;
+    const rect = target.getBoundingClientRect();
+    const pointerId = e.pointerId;
+    const startClientX = e.clientX;
+    const startClientY = e.clientY;
+    const offsetX = startClientX - rect.left;
+    const offsetY = startClientY - rect.top;
+    let didDrag = false;
+
+    try {
+      target.setPointerCapture(pointerId);
+    } catch {
+      // Ignore synthetic event capture errors
+    }
+
+    const onPointerMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return;
+
+      if (
+        !didDrag &&
+        exceedsFabDragThreshold(
+          startClientX,
+          startClientY,
+          moveEvent.clientX,
+          moveEvent.clientY
+        )
+      ) {
+        didDrag = true;
+        setIsDraggingFab(true);
+      }
+
+      if (didDrag) {
+        const nextPos = clampFabPosition(
+          moveEvent.clientX - offsetX,
+          moveEvent.clientY - offsetY,
+          window.innerWidth,
+          window.innerHeight
+        );
+        setFabPosition(nextPos);
+      }
+    };
+
+    const cleanup = (endEvent: PointerEvent) => {
+      if (endEvent.pointerId !== pointerId) return;
+      try {
+        if (target.hasPointerCapture(pointerId)) {
+          target.releasePointerCapture(pointerId);
+        }
+      } catch {
+        // Ignore if already released
+      }
+      target.removeEventListener('pointermove', onPointerMove);
+      target.removeEventListener('pointerup', onPointerUp);
+      target.removeEventListener('pointercancel', onPointerCancel);
+      setIsDraggingFab(false);
+    };
+
+    const onPointerUp = (upEvent: PointerEvent) => {
+      if (upEvent.pointerId !== pointerId) return;
+      const wasDrag = didDrag;
+      cleanup(upEvent);
+      // Only resume drawing if this interaction was a click, not a drag
+      if (!wasDrag) {
+        handleResume();
+      }
+    };
+
+    const onPointerCancel = (cancelEvent: PointerEvent) => {
+      cleanup(cancelEvent);
+    };
+
+    target.addEventListener('pointermove', onPointerMove);
+    target.addEventListener('pointerup', onPointerUp);
+    target.addEventListener('pointercancel', onPointerCancel);
+  };
+
+  // Support keyboard activation (Enter / Space) when the floating resume button is focused
+  const handleFabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      e.stopPropagation();
+      handleResume();
+    }
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -267,16 +433,27 @@ export const OverlayApp: React.FC<OverlayAppProps> = () => {
     .filter(Boolean)
     .join(' ');
 
+  const fabStyle: React.CSSProperties | undefined = fabPosition
+    ? {
+        left: `${fabPosition.x}px`,
+        top: `${fabPosition.y}px`,
+        right: 'auto',
+        bottom: 'auto',
+      }
+    : undefined;
+
   return (
     <div className="pi-overlay-root">
       <canvas ref={canvasRef} className={canvasClasses} />
       {isPaused ? (
         <button
+          ref={fabRef}
           type="button"
-          className="pi-resume-fab"
-          onClick={handleResume}
-          onPointerDown={(e) => e.stopPropagation()}
-          title="Resume PageInk drawing"
+          className={`pi-resume-fab ${isDraggingFab ? 'pi-resume-fab-dragging' : ''}`}
+          style={fabStyle}
+          onPointerDown={handleFabPointerDown}
+          onKeyDown={handleFabKeyDown}
+          title="Click to resume PageInk (drag to move)"
           aria-label="Resume PageInk drawing"
         >
           <PageInkBadgeIcon />
@@ -302,6 +479,7 @@ export const OverlayApp: React.FC<OverlayAppProps> = () => {
           onRedo={handleRedo}
           onClearAll={handleClearAll}
           onPause={handlePause}
+          onClose={onClose}
         />
       )}
     </div>

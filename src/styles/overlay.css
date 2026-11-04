@@ -40,7 +40,7 @@
   top: 16px;
   left: 50%;
   transform: translateX(-50%);
-  width: 348px;
+  width: 356px;
   background-color: #232329;
   border: 1px solid rgba(255, 255, 255, 0.11);
   border-radius: 12px;
@@ -143,6 +143,34 @@
 .pi-btn.pi-danger:hover:not(:disabled) {
   background-color: rgba(239, 68, 68, 0.18);
   color: #f87171;
+}
+
+.pi-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.pi-btn.pi-minimize-btn {
+  width: 28px;
+  height: 28px;
+  color: #a1a1aa;
+}
+
+.pi-btn.pi-minimize-btn:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.pi-btn.pi-close-btn {
+  width: 28px;
+  height: 28px;
+  color: #a1a1aa;
+}
+
+.pi-btn.pi-close-btn:hover:not(:disabled) {
+  background-color: rgba(239, 68, 68, 0.22);
+  color: #fca5a5;
 }
 
 /* Color Swatches */
@@ -250,20 +278,32 @@
   align-items: center;
   justify-content: center;
   pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
   cursor: pointer;
   padding: 0;
   z-index: 2147483647;
   transition: transform 0.14s ease, border-color 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
 }
 
-.pi-resume-fab:hover {
+.pi-resume-fab:hover:not(.pi-resume-fab-dragging) {
   transform: translateY(-2px) scale(1.04);
   background-color: rgba(35, 35, 41, 0.96);
   border-color: rgba(59, 130, 246, 0.65);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(59, 130, 246, 0.25);
 }
 
-.pi-resume-fab:active {
+.pi-resume-fab.pi-resume-fab-dragging {
+  cursor: grabbing;
+  transform: scale(1.06);
+  background-color: rgba(35, 35, 41, 0.96);
+  border-color: rgba(59, 130, 246, 0.75);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.55), 0 0 0 2px rgba(59, 130, 246, 0.3);
+  transition: none;
+}
+
+.pi-resume-fab:active:not(.pi-resume-fab-dragging) {
   transform: translateY(0) scale(0.98);
 }
 
