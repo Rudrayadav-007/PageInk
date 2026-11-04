@@ -232,3 +232,48 @@
   min-width: 24px;
   text-align: right;
 }
+
+/* Floating Resume Badge (Pause Mode) */
+.pi-resume-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background-color: rgba(32, 33, 36, 0.88);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42), 0 2px 6px rgba(0, 0, 0, 0.28);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 0;
+  z-index: 2147483647;
+  transition: transform 0.14s ease, border-color 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+.pi-resume-fab:hover {
+  transform: translateY(-2px) scale(1.04);
+  background-color: rgba(35, 35, 41, 0.96);
+  border-color: rgba(59, 130, 246, 0.65);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5), 0 0 0 2px rgba(59, 130, 246, 0.25);
+}
+
+.pi-resume-fab:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.pi-resume-fab-dot {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid #202124;
+  pointer-events: none;
+}

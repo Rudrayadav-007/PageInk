@@ -44,7 +44,7 @@ export const DEFAULT_TOOL_SETTINGS: ToolSettings = {
   activeTool: 'pen',
   color: '#ef4444',
   highlighterColor: '#facc15',
-  penSize: 4,
+  penSize: 2,
   highlighterSize: 22,
   eraserSize: 18,
 };

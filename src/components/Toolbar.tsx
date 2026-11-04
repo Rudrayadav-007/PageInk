@@ -6,7 +6,7 @@ import {
   Undo2,
   Redo2,
   Trash2,
-  X,
+  Minus,
   GripVertical,
 } from 'lucide-react';
 import { HistoryStateSnapshot } from '../engine/HistoryManager';
@@ -32,7 +32,7 @@ interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onClearAll: () => void;
-  onClose: () => void;
+  onPause: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -45,7 +45,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onUndo,
   onRedo,
   onClearAll,
-  onClose,
+  onPause,
 }) => {
   const [position, setPosition] = useState<{ x: number; y: number } | null>(null);
   const dragOffset = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -230,11 +230,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <button
           type="button"
           className="pi-btn"
-          onClick={onClose}
-          title="Close PageInk (Esc)"
-          aria-label="Close PageInk"
+          onClick={onPause}
+          title="Pause drawing & minimize toolbar (Esc)"
+          aria-label="Pause PageInk"
         >
-          <X size={16} />
+          <Minus size={16} />
         </button>
       </div>
 

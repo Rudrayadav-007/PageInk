@@ -2,6 +2,23 @@
 
 All notable changes to the **PageInk** Chrome extension are documented in this file.
 
+## [0.8.0] - Pause / Resume Mode, 2px Default Pen & Installation Guide
+
+### Added
+- **Pause / Resume Mode with Floating PageInk Icon** (`src/components/OverlayApp.tsx`, `src/components/Toolbar.tsx`, `src/styles/overlay.css`):
+  - Replaced the toolbar's destructive close (`X`) button with a **Pause / Minimize (`-`)** button (also triggered by pressing `Escape` while drawing).
+  - Pausing hides the full toolbar while keeping the `CanvasEngine` mounted and all existing annotations, selected tool, colors, thickness settings, and Undo/Redo history intact in memory.
+  - While paused, the drawing canvas is completely click-through (`pointer-events: none`) for full webpage interaction and natural scrolling, and a compact glassmorphic PageInk icon (`pi-resume-fab`) appears in the bottom-right corner to resume drawing with one click.
+  - Pressing `Escape` while already paused does not destroy the paused session. Clicking the Chrome extension toolbar icon toggles the session off completely when finished.
+- **Beginner-Friendly Chrome Installation Guide** (`README.md`):
+  - Added step-by-step unpacked installation instructions (ZIP or source build, `chrome://extensions`, Developer mode, Load unpacked, and toolbar pinning) and clarified Chrome Web Store status.
+
+### Changed
+- **Default Pen Thickness** (`src/types/tools.ts`):
+  - Changed initial/default Pen thickness (`DEFAULT_TOOL_SETTINGS.penSize`) from `4px` to `2px` while keeping Highlighter default thickness at `22px`.
+
+---
+
 ## [0.7.0] - Final Polish: Extension Icons, Draw-Mode Wheel Scrolling & Whole-Stroke Eraser
 
 ### Added

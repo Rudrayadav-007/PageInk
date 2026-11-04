@@ -11,9 +11,13 @@ Designed for studying technical documentation, ChatGPT responses, code blocks, a
 - **On-Demand Activation**: Click the PageInk toolbar icon to inject and toggle the drawing overlay on the active tab (`activeTab` + `scripting` permissions only).
 - **Shadow DOM Isolation**: Renders the floating toolbar and viewport canvas inside an isolated Shadow DOM root (`<pageink-overlay>`) so host webpage styles and DOM remain untouched, with singleton guard protection against duplicate roots.
 - **Compact Draggable Toolbar & Customization Controls**:
-  - Excalidraw-inspired dark charcoal floating toolbar (`348px` wide) with Lucide icons, active tool state (`Pen`, `Highlighter`, `Eraser`), live `Undo` / `Redo` / `Clear All` action buttons, drag handle, and `Escape` / Close button dismissal.
+  - Excalidraw-inspired dark charcoal floating toolbar (`348px` wide) with Lucide icons, active tool state (`Pen`, `Highlighter`, `Eraser`), live `Undo` / `Redo` / `Clear All` action buttons, drag handle, and `Pause` (`-` button or `Escape`) to minimize into a floating resume icon.
   - Dedicated **Pen Color Palette** (8 colors: Black, White, Red, Orange, Yellow, Green, Blue, Purple) and **Highlighter Color Palette** (4 colors: Yellow, Green, Pink, Blue).
-  - Independent **Thickness Controls** for Pen (`1–12px`) and Highlighter (`8–32px`) with live visual dot size/color preview and compact range slider.
+  - Independent **Thickness Controls** for Pen (`1–12px`, default `2px`) and Highlighter (`8–32px`, default `22px`) with live visual dot size/color preview and compact range slider.
+- **Pause & Resume Mode**:
+  - Click the **Pause (`-`)** button on the toolbar (or press `Escape`) to hide the full toolbar while keeping all existing annotations visible on the page.
+  - In Pause mode, the drawing canvas becomes completely click-through (`pointer-events: none`) so you can click links, select text, type in inputs, and scroll naturally while a compact glassmorphic PageInk icon floats near the bottom-right corner.
+  - Click the floating PageInk icon at any time to restore the full toolbar, active tool, color/thickness settings, and Undo/Redo history. Clicking the Chrome extension toolbar icon fully exits and clears the session.
 - **Pressure-Sensitive Stylus & Smooth Freehand Pen Engine**:
   - Powered by `perfect-freehand` and quadratic Bézier `Path2D` splines with rounded caps.
   - Captures real hardware stylus pressure (`PointerEvent.pressure`) with a gentle gamma response curve, exponential moving average (EMA) pressure smoothing, and a safe minimum pressure floor (`0.12`) to prevent zero-width strokes.
@@ -92,13 +96,28 @@ PageInk/
 
 ---
 
-## Local Development Instructions
+## Installation in Chrome
+
+> **Availability Note**: PageInk is currently installed as an unpacked Chrome extension (for local use and development). Once published to the Chrome Web Store, a one-click store installation link will be provided here.
+
+### Quick Install (Unpacked Extension)
+1. **Download PageInk**: Download the latest PageInk release ZIP from GitHub (or clone this repository with `git clone https://github.com/Rudrayadav-007/PageInk.git`).
+2. **Extract (if using a ZIP)**: Extract the downloaded ZIP archive to a folder on your computer. *(If you cloned the source repository instead of downloading a prebuilt release ZIP, run `npm install && npm run build` first—see below.)*
+3. **Open Chrome Extensions**: Open Google Chrome and navigate to `chrome://extensions` in the address bar.
+4. **Enable Developer Mode**: Toggle on **Developer mode** in the top-right corner.
+5. **Load Unpacked**: Click **Load unpacked** in the top-left corner.
+6. **Select the Build Folder**: Select the extracted production build folder containing `manifest.json` (located at `.output/chrome-mv3` when built from source).
+7. **Pin & Start Drawing**: Click the puzzle-piece **Extensions** icon in Chrome's toolbar, pin **PageInk**, and click the PageInk icon on any webpage to start drawing.
+
+---
+
+## Local Development & Building from Source
 
 ### Prerequisites
 - Node.js `>= 18` and `npm`
 - Google Chrome or any Chromium-based browser
 
-### Setup & Build
+### Build Steps
 1. Install dependencies:
    ```bash
    npm install
@@ -111,19 +130,13 @@ PageInk/
    ```bash
    npm run build
    ```
-   The unpacked extension is generated in `.output/chrome-mv3`.
-
-### Loading in Chrome
-1. Navigate to `chrome://extensions` in Chrome.
-2. Enable **Developer mode** (top-right toggle).
-3. Click **Load unpacked** and select the `.output/chrome-mv3` directory.
-4. Open any standard webpage (`https://...`) and click the **PageInk** extension icon to toggle annotation mode.
+   The unpacked production extension (containing `manifest.json`) is generated in `.output/chrome-mv3`.
 
 ---
 
 ## Known Design Boundaries & Limitations
 
 - **Document-Coordinate Annotations**: Annotations are stored in document/scroll coordinates (`scrollX`, `scrollY`), not bound to individual DOM nodes. If an accordion or dynamic element expands and shifts page layout vertically, annotations remain at their document coordinates.
-- **Ephemeral Session by Design**: PageInk intentionally stores zero data in `chrome.storage` or external servers. Closing the overlay (`Escape` or `X`) or reloading the tab clears the session.
+- **Ephemeral Session by Design**: PageInk intentionally stores zero data in `chrome.storage` or external servers. Pausing the toolbar (`-` or `Escape`) keeps your annotations and history alive in memory while you browse; clicking the Chrome extension icon again or reloading the tab ends the session.
 - **Browser-Restricted Pages**: Chromium extensions cannot inject scripts into internal pages (`chrome://`, `edge://`, `about:`) or the Chrome Web Store.
 - **Hardware Validation**: See [`docs/TESTING.md`](docs/TESTING.md) for the manual browser verification checklist and XP-Pen Artist/Deco hardware test procedures.
