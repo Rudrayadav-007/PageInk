@@ -141,3 +141,5 @@ PageInk/
 - **Ephemeral Session by Design**: PageInk intentionally stores zero data in `chrome.storage` or external servers. Pausing the toolbar (`-` or `Escape`) keeps your annotations and history alive in memory while you browse; clicking the Chrome extension icon again or reloading the tab ends the session.
 - **Browser-Restricted Pages**: Chromium extensions cannot inject scripts into internal pages (`chrome://`, `edge://`, `about:`) or the Chrome Web Store.
 - **Hardware Validation**: See [`docs/TESTING.md`](docs/TESTING.md) for the manual browser verification checklist and XP-Pen Artist/Deco hardware test procedures.
+
+
