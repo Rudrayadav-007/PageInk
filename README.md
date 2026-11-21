@@ -102,12 +102,12 @@ PageInk/
 > **Availability Note**: PageInk is currently installed as an unpacked Chrome extension (for local use and development). Once published to the Chrome Web Store, a one-click store installation link will be provided here.
 
 ### Quick Install (Unpacked Extension)
-1. **Download PageInk**: Download the latest PageInk release ZIP from GitHub (or clone this repository with `git clone https://github.com/Rudrayadav-007/PageInk.git`).
-2. **Extract (if using a ZIP)**: Extract the downloaded ZIP archive to a folder on your computer. *(If you cloned the source repository instead of downloading a prebuilt release ZIP, run `npm install && npm run build` first—see below.)*
+1. **Download PageInk**: Click **Code → Download ZIP** on this GitHub repository (or clone it with `git clone https://github.com/Rudrayadav-007/PageInk.git`).
+2. **Extract (if using a ZIP)**: Extract the downloaded ZIP archive to a folder on your computer. The ready-to-load production build is already included inside `.output/chrome-mv3`.
 3. **Open Chrome Extensions**: Open Google Chrome and navigate to `chrome://extensions` in the address bar.
 4. **Enable Developer Mode**: Toggle on **Developer mode** in the top-right corner.
 5. **Load Unpacked**: Click **Load unpacked** in the top-left corner.
-6. **Select the Build Folder**: Select the extracted production build folder containing `manifest.json` (located at `.output/chrome-mv3` when built from source).
+6. **Select the Build Folder**: Select the `.output/chrome-mv3` folder (which contains `manifest.json`).
 7. **Pin & Start Drawing**: Click the puzzle-piece **Extensions** icon in Chrome's toolbar, pin **PageInk**, and click the PageInk icon on any webpage to start drawing.
 
 ---

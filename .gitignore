@@ -1,9 +1,10 @@
 # Dependencies
 node_modules/
 
-# WXT generated files and build output
+# WXT generated internal files
 .wxt/
-.output/
+.output/*
+!.output/chrome-mv3/
 dist/
 
 # Logs
